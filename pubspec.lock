@@ -499,9 +499,11 @@ packages:
   multicooker_bluetooth_sdk:
     dependency: "direct main"
     description:
-      path: "packages/multicooker_bluetooth_sdk"
-      relative: true
-    source: path
+      path: "."
+      ref: main
+      resolved-ref: "2d352daf71396356732f4c9d71e0e3415c04a747"
+      url: "https://github.com/Dongun614/multicooker_bluetooth_sdk"
+    source: git
     version: "0.0.1"
   nested:
     dependency: transitive

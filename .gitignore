@@ -16,29 +16,7 @@ migrate_working_dir/
 *.iml
 *.ipr
 *.iws
-.idea/# Flutter
-.dart_tool/
-build/
-.flutter-plugins
-.flutter-plugins-dependencies
-.packages
-
-# Local DB / env
-*.db
-multicooker.db
-.env
-.env.*
-
-# Android signing
-android/key.properties
-*.jks
-*.keystore
-
-# IDE
 .idea/
-.vscode/
-
-
 
 # The .vscode folder contains launch configuration and tasks you configure in
 # VS Code which you may wish to be included in version control, so this line
@@ -65,32 +43,3 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
-.env
-.env.*
-*.db
-multicooker.db
-# Local secrets
-.env
-.env.*
-*.db
-multicooker.db
-
-# Flutter
-.dart_tool/
-build/
-.flutter-plugins
-.flutter-plugins-dependencies
-.packages
-
-# Android signing
-android/key.properties
-*.jks
-*.keystore
-
-# IDE
-.idea/
-.vscode/
-# Env variants
-.env*
-*.env
-*.env.*

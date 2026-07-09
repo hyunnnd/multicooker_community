@@ -1,16 +1,21 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import re
 import secrets
 import sqlite3
+import time
+from collections import deque
 from datetime import datetime, timedelta
+from html import escape
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, UploadFile, File
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy import or_
@@ -36,6 +41,277 @@ async def no_cache_headers(request: Request, call_next):
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_DIR = os.path.join(BASE_DIR, "local_uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+# -----------------------------------------------------------------------------
+# API access log for collaboration
+# -----------------------------------------------------------------------------
+LOG_DIR = Path(BASE_DIR) / "logs"
+LOG_DIR.mkdir(exist_ok=True)
+API_LOG_PATH = LOG_DIR / "api.log"
+
+api_logger = logging.getLogger("multicooker-api-access")
+api_logger.setLevel(logging.INFO)
+api_logger.propagate = False
+
+if not api_logger.handlers:
+    _formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
+
+    _file_handler = RotatingFileHandler(
+        API_LOG_PATH,
+        maxBytes=2 * 1024 * 1024,
+        backupCount=5,
+        encoding="utf-8",
+    )
+    _file_handler.setFormatter(_formatter)
+
+    _console_handler = logging.StreamHandler()
+    _console_handler.setFormatter(_formatter)
+
+    api_logger.addHandler(_file_handler)
+    api_logger.addHandler(_console_handler)
+
+
+def _tail_log_lines(lines: int = 200) -> list[str]:
+    lines = max(1, min(lines, 1000))
+    if not API_LOG_PATH.exists():
+        return []
+    with API_LOG_PATH.open("r", encoding="utf-8", errors="replace") as f:
+        # 최근 N개 로그만 가져온 뒤 뒤집어서 최신 로그가 가장 위에 오도록 반환합니다.
+        return [line.rstrip("\n") for line in deque(f, maxlen=lines)][::-1]
+
+
+def _admin_log_allowed(request: Request) -> bool:
+    """
+    ADMIN_LOG_KEY가 설정되어 있으면 key 쿼리 또는 x-admin-key 헤더가 맞아야 로그 화면을 보여줍니다.
+    설정하지 않으면 같은 와이파이 개발 테스트용으로 바로 열립니다.
+    """
+    admin_key = os.getenv("ADMIN_LOG_KEY", "").strip()
+    if not admin_key:
+        return True
+    supplied_key = request.query_params.get("key") or request.headers.get("x-admin-key") or ""
+    return supplied_key == admin_key
+
+
+@app.middleware("http")
+async def api_access_logger(request: Request, call_next):
+    start_time = time.time()
+    client_ip = request.client.host if request.client else "unknown"
+    method = request.method
+    path = request.url.path
+    query = request.url.query
+    display_path = f"{path}?{query}" if query else path
+
+    # 로그 화면 자체가 3초마다 새로고침되므로 로그가 도배되지 않도록 제외합니다.
+    skip_log = path.startswith("/admin/log-viewer") or path.startswith("/admin/api-logs")
+
+    try:
+        response = await call_next(request)
+        duration_ms = (time.time() - start_time) * 1000
+        if not skip_log:
+            api_logger.info(
+                f'{client_ip} | {method} {display_path} -> {response.status_code} ({duration_ms:.1f}ms)'
+            )
+        return response
+    except Exception as exc:
+        duration_ms = (time.time() - start_time) * 1000
+        if not skip_log:
+            api_logger.exception(
+                f'{client_ip} | {method} {display_path} -> 500 ERROR ({duration_ms:.1f}ms) | {exc}'
+            )
+        raise
+
+
+@app.get("/admin/api-logs")
+def get_api_logs(request: Request, lines: int = 200):
+    if not _admin_log_allowed(request):
+        raise HTTPException(status_code=403, detail="관리자 로그 키가 올바르지 않습니다.")
+    return {"logs": _tail_log_lines(lines)}
+
+
+@app.get("/admin/log-viewer", response_class=HTMLResponse)
+def log_viewer(request: Request, lines: int = 200):
+    if not _admin_log_allowed(request):
+        return HTMLResponse(
+            """
+            <!doctype html>
+            <html lang=\"ko\">
+            <head><meta charset=\"utf-8\"><title>API Log Viewer</title></head>
+            <body style=\"font-family: sans-serif; padding: 24px;\">
+              <h2>관리자 로그 키가 필요합니다.</h2>
+              <p>주소 뒤에 <code>?key=관리자키</code>를 붙이거나 <code>x-admin-key</code> 헤더를 사용하세요.</p>
+            </body>
+            </html>
+            """,
+            status_code=403,
+        )
+
+    log_lines = _tail_log_lines(lines)
+    keyword = (request.query_params.get("q") or "").strip()
+    if keyword:
+        lowered = keyword.lower()
+        log_lines = [line for line in log_lines if lowered in line.lower()]
+
+    def _status_class(line: str) -> str:
+        if " -> 2" in line or " -> 3" in line:
+            return "ok"
+        if " -> 4" in line:
+            return "warn"
+        if " -> 5" in line or "ERROR" in line:
+            return "error"
+        return "normal"
+
+    rows = "\n".join(
+        f'<div class="log-line {_status_class(line)}">{escape(line)}</div>'
+        for line in log_lines
+    ) or '<div class="empty">아직 표시할 API 로그가 없습니다.</div>'
+
+    safe_keyword = escape(keyword, quote=True)
+    safe_lines = max(1, min(lines, 1000))
+
+    return f"""
+    <!doctype html>
+    <html lang="ko">
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <meta http-equiv="refresh" content="3">
+      <title>MultiCooker API Log Viewer</title>
+      <style>
+        * {{ box-sizing: border-box; }}
+        body {{
+          margin: 0;
+          background: #111827;
+          color: #F9FAFB;
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }}
+        .wrap {{
+          max-width: 1180px;
+          margin: 0 auto;
+          padding: 24px;
+        }}
+        .top {{
+          display: flex;
+          align-items: flex-end;
+          justify-content: space-between;
+          gap: 16px;
+          margin-bottom: 16px;
+        }}
+        h1 {{
+          margin: 0 0 6px;
+          font-size: 24px;
+          letter-spacing: -0.02em;
+        }}
+        .sub {{
+          color: #9CA3AF;
+          font-size: 13px;
+        }}
+        .toolbar {{
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+          justify-content: flex-end;
+        }}
+        input {{
+          height: 36px;
+          padding: 0 12px;
+          border-radius: 10px;
+          border: 1px solid #374151;
+          background: #1F2937;
+          color: #F9FAFB;
+          outline: none;
+        }}
+        button, a.btn {{
+          height: 36px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          padding: 0 12px;
+          border: 0;
+          border-radius: 10px;
+          background: #F97316;
+          color: white;
+          text-decoration: none;
+          font-weight: 700;
+          cursor: pointer;
+        }}
+        .panel {{
+          background: #1F2937;
+          border: 1px solid #374151;
+          border-radius: 16px;
+          overflow: hidden;
+          box-shadow: 0 18px 45px rgba(0,0,0,.25);
+        }}
+        .legend {{
+          display: flex;
+          gap: 12px;
+          flex-wrap: wrap;
+          padding: 12px 16px;
+          border-bottom: 1px solid #374151;
+          color: #D1D5DB;
+          font-size: 12px;
+        }}
+        .dot {{
+          width: 8px;
+          height: 8px;
+          display: inline-block;
+          border-radius: 999px;
+          margin-right: 5px;
+        }}
+        .ok-dot {{ background: #22C55E; }}
+        .warn-dot {{ background: #FACC15; }}
+        .error-dot {{ background: #EF4444; }}
+        .logs {{
+          padding: 12px 0;
+          max-height: calc(100vh - 180px);
+          overflow: auto;
+          font-family: Consolas, "SFMono-Regular", Menlo, monospace;
+          font-size: 13px;
+          line-height: 1.55;
+        }}
+        .log-line {{
+          white-space: pre-wrap;
+          padding: 4px 16px;
+          border-left: 4px solid transparent;
+        }}
+        .log-line.ok {{ border-left-color: #22C55E; color: #DCFCE7; }}
+        .log-line.warn {{ border-left-color: #FACC15; color: #FEF9C3; }}
+        .log-line.error {{ border-left-color: #EF4444; color: #FEE2E2; }}
+        .log-line.normal {{ color: #E5E7EB; }}
+        .empty {{ padding: 24px 16px; color: #9CA3AF; }}
+        @media (max-width: 720px) {{
+          .top {{ align-items: stretch; flex-direction: column; }}
+          .toolbar {{ justify-content: flex-start; }}
+          input {{ width: 100%; }}
+        }}
+      </style>
+    </head>
+    <body>
+      <div class="wrap">
+        <div class="top">
+          <div>
+            <h1>MultiCooker API Log Viewer <span class="latest-badge">최신순</span></h1>
+            <div class="sub">최근 {safe_lines}줄 · 최신순 · 3초마다 자동 새로고침 · logs/api.log 기준</div>
+          </div>
+          <form class="toolbar" method="get" action="/admin/log-viewer">
+            <input name="q" placeholder="예: reviews, 200, 401" value="{safe_keyword}">
+            <input name="lines" type="number" min="1" max="1000" value="{safe_lines}" style="width: 92px;">
+            <button type="submit">검색</button>
+            <a class="btn" href="/admin/log-viewer?lines={safe_lines}">전체</a>
+          </form>
+        </div>
+        <div class="panel">
+          <div class="legend">
+            <span><i class="dot ok-dot"></i>2xx/3xx 성공</span>
+            <span><i class="dot warn-dot"></i>4xx 요청/권한 문제</span>
+            <span><i class="dot error-dot"></i>5xx 서버 오류</span>
+          </div>
+          <div class="logs">{rows}</div>
+        </div>
+      </div>
+    </body>
+    </html>
+    """
+
 DATABASE_URL = f"sqlite:///{os.path.join(BASE_DIR, 'multicooker.db')}"
 engine = create_engine(DATABASE_URL, echo=False, connect_args={"check_same_thread": False})
 DEFAULT_USER = "나"
