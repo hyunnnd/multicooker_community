@@ -1,5 +1,3 @@
-아래 그대로 `README.md`에 붙여 넣으시면 됩니다.
-
 ````md
 # MultiCooker Community 기능 설명
 
