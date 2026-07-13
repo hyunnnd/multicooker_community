@@ -8,6 +8,7 @@ import '../../../core/widgets/error_view.dart';
 import '../../../core/widgets/loading_overlay.dart';
 import '../provider/auth_provider.dart';
 import 'auth_scaffold.dart';
+import 'widgets/google_auth_button.dart';
 
 class RegisterEmailScreen extends StatefulWidget {
   const RegisterEmailScreen({super.key});
@@ -55,6 +56,19 @@ class _RegisterEmailScreenState extends State<RegisterEmailScreen> {
             ),
             const SizedBox(height: 20),
             AppButton(label: '인증코드 발송', icon: Icons.mail, onPressed: _send),
+            const SizedBox(height: 20),
+            const Row(
+              children: [
+                Expanded(child: Divider()),
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 12),
+                  child: Text('또는'),
+                ),
+                Expanded(child: Divider()),
+              ],
+            ),
+            const SizedBox(height: 12),
+            const GoogleAuthButton(label: 'Google로 회원가입'),
           ],
         ),
       ),

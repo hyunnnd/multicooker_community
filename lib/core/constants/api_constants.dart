@@ -9,8 +9,8 @@ class ApiConstants {
     defaultValue: 'http://192.1.0.28:8001',
   );
 
-  /// Company authentication server used only by login, sign-up, password reset,
-  /// token refresh/logout, /auth/me, and Google login.
+  /// Company server used by authentication and personal recipe APIs.
+  /// Recipe upload/list calls use the same authenticated access token.
   ///
   /// Change it with --dart-define=AUTH_API_BASE_URL=...
   static const authBaseUrl = String.fromEnvironment(
@@ -18,7 +18,7 @@ class ApiConstants {
     defaultValue: 'http://3.36.14.110:8000',
   );
 
-  /// Backward-compatible alias. New code should use apiBaseUrl or authBaseUrl.
+  /// Backward-compatible alias for local prototype APIs.
   static const baseUrl = apiBaseUrl;
 
   static const registerSendCode = '/auth/register/send_email_code';
@@ -28,6 +28,8 @@ class ApiConstants {
   static const resetVerifyCode = '/auth/reset_password/verify_email_code';
   static const resetComplete = '/auth/reset_password/complete';
   static const login = '/auth/login';
+  static const googleLogin = '/auth/google/login';
+  static const googleToken = '/auth/google/token';
   static const refresh = '/auth/refresh';
   static const logout = '/auth/logout';
   static const me = '/auth/me';
@@ -35,6 +37,8 @@ class ApiConstants {
   /// Local FastAPI endpoint. This maps the company-authenticated user to the
   /// local SQLite DB user and issues a local API token for community/recipe APIs.
   static const localAuthSync = '/auth/local_sync';
+
+  static Uri authUri(String path) => Uri.parse(authBaseUrl).resolve(path);
 
   static const aiUploadPhoto = '/ai_recommend/upload_ingredients_photo';
   static const aiUploadComplete =

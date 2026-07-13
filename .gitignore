@@ -43,3 +43,15 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+# local env / secrets
+.env
+.env.*
+*.env
+.env 2
+
+# local database
+*.db
+multicooker.db
+
+# local uploaded files
+local_uploads/

@@ -7,7 +7,6 @@ import 'widgets/cooker_status_panel.dart';
 import 'widgets/cooking_progress_card.dart';
 import 'widgets/cooking_rive_animation.dart';
 import 'widgets/user_action_required_modal.dart';
-import '../../../core/widgets/app_image.dart';
 
 class GuidedCookingScreen extends StatelessWidget {
   const GuidedCookingScreen({super.key});
@@ -65,15 +64,18 @@ class GuidedCookingScreen extends StatelessWidget {
                             borderRadius: BorderRadius.circular(8),
                           ),
                           clipBehavior: Clip.antiAlias,
-                          child: AppImage(
-                            source: instruction.imageUrl,
-                            fit: BoxFit.cover,
-                            placeholder: const Icon(
-                              Icons.restaurant,
-                              size: 56,
-                              color: Color(0xFF3378C0),
-                            ),
-                          ),
+                          child: instruction.imageUrl == null
+                              ? const Icon(
+                                  Icons.restaurant,
+                                  size: 56,
+                                  color: Color(0xFF3378C0),
+                                )
+                              : Image.network(
+                                  instruction.imageUrl!,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, _, _) =>
+                                      const Icon(Icons.restaurant, size: 56),
+                                ),
                         ),
                       const SizedBox(height: 18),
                       Text(

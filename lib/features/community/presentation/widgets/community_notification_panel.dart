@@ -87,7 +87,7 @@ class _NotificationPanel extends StatelessWidget {
                                           const SizedBox(height: 2),
                                           Text('"${item.postTitle}"', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: _gray400)),
                                           const SizedBox(height: 2),
-                                          Text(item.timeAgo, style: const TextStyle(fontSize: 11, color: _gray300)),
+                                          Text(item.relativeTime, style: const TextStyle(fontSize: 11, color: _gray300)),
                                         ],
                                       ),
                                     ),

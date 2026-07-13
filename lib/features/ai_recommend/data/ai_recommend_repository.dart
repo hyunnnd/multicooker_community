@@ -1,15 +1,16 @@
-import 'dart:typed_data';
+import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../../core/constants/api_constants.dart';
 import 'ai_recommend_result.dart';
 
 class AiRecommendRepository {
-  AiRecommendRepository(this._dio) : _uploadDio = Dio();
+  AiRecommendRepository(this._dio);
 
   final Dio _dio;
-  final Dio _uploadDio;
+  Map<String, dynamic>? lastUploadInfo;
 
   Future<Map<String, dynamic>> requestUploadUrl({
     required String filename,
@@ -19,7 +20,10 @@ class AiRecommendRepository {
       ApiConstants.aiUploadPhoto,
       data: {'filename': filename, 'content_type': contentType},
     );
-    return Map<String, dynamic>.from(response.data as Map);
+    final upload = Map<String, dynamic>.from(response.data as Map);
+    lastUploadInfo = upload;
+    debugPrint('AI upload presigned info: $upload');
+    return upload;
   }
 
   Future<AiRecommendResult> completeUpload({
@@ -43,28 +47,24 @@ class AiRecommendRepository {
   }
 
   Future<AiRecommendResult> analyzeImage({
-    required Uint8List bytes,
+    required String filePath,
     required String filename,
     required String contentType,
   }) async {
-    if (bytes.isEmpty) {
-      throw Exception('선택한 이미지 파일이 비어 있습니다.');
-    }
-
     final upload = await requestUploadUrl(
       filename: filename,
       contentType: contentType,
     );
+    final file = File(filePath);
     final headers = Map<String, dynamic>.from(
       (upload['headers'] as Map?) ?? const {},
     );
-    headers[Headers.contentTypeHeader] = contentType;
+    headers[Headers.contentLengthHeader] = await file.length();
 
-    // Flutter Web에서는 Content-Length 같은 제한 헤더를 직접 넣으면 브라우저가 막을 수 있습니다.
-    await _uploadDio.put<void>(
+    await Dio().put<void>(
       upload['upload_url'] as String,
-      data: bytes,
-      options: Options(headers: headers, responseType: ResponseType.plain),
+      data: file.openRead(),
+      options: Options(headers: headers, contentType: contentType),
     );
 
     return completeUpload(

@@ -117,16 +117,6 @@ class CommunityRepository {
     return _postFromJson(response.data!['post'] as Map<String, dynamic>);
   }
 
-  Future<CommunityPost> bookmarkPost(int postId) async {
-    final response = await _dio.post<Map<String, dynamic>>('/community/posts/$postId/bookmark');
-    return _postFromJson(response.data!['post'] as Map<String, dynamic>);
-  }
-
-  Future<CommunityPost> unbookmarkPost(int postId) async {
-    final response = await _dio.delete<Map<String, dynamic>>('/community/posts/$postId/bookmark');
-    return _postFromJson(response.data!['post'] as Map<String, dynamic>);
-  }
-
   Future<void> reportPost(int postId, {String reason = 'reported from app'}) async {
     await _dio.post<void>('/community/posts/$postId/report', data: {'reason': reason});
   }
@@ -241,11 +231,11 @@ class CommunityRepository {
         username: json['username'] as String? ?? '익명',
         avatarColor: _asInt(json['avatar_color'], fallback: 0xFFFF8C42),
         timeAgo: json['time_ago'] as String? ?? '',
+        createdAt: _asDateTime(json['created_at']),
         title: json['title'] as String? ?? '',
         content: json['content'] as String? ?? '',
         likes: _asInt(json['likes']),
         isLiked: json['is_liked'] as bool? ?? false,
-        isBookmarked: json['is_bookmarked'] as bool? ?? false,
         isMine: json['is_mine'] as bool? ?? false,
         comments: ((json['comments'] as List<dynamic>?) ?? const [])
             .map((item) => _commentFromJson(item as Map<String, dynamic>))
@@ -261,6 +251,7 @@ class CommunityRepository {
         avatarColor: _asInt(json['avatar_color'], fallback: 0xFFFF8C42),
         content: json['content'] as String? ?? '',
         timeAgo: json['time_ago'] as String? ?? '',
+        createdAt: _asDateTime(json['created_at']),
         likes: _asInt(json['likes']),
         isLiked: json['is_liked'] as bool? ?? false,
         isMine: json['is_mine'] as bool? ?? false,
@@ -275,6 +266,7 @@ class CommunityRepository {
         avatarColor: _asInt(json['avatar_color'], fallback: 0xFFFF8C42),
         content: json['content'] as String? ?? '',
         timeAgo: json['time_ago'] as String? ?? '',
+        createdAt: _asDateTime(json['created_at']),
         likes: _asInt(json['likes']),
         isLiked: json['is_liked'] as bool? ?? false,
         isMine: json['is_mine'] as bool? ?? false,
@@ -316,6 +308,7 @@ class CommunityRepository {
         postTitle: json['post_title'] as String? ?? '',
         postId: _asInt(json['post_id']),
         timeAgo: json['time_ago'] as String? ?? '',
+        createdAt: _asDateTime(json['created_at']),
         read: json['read'] as bool? ?? false,
       );
 
@@ -330,6 +323,11 @@ class CommunityRepository {
 
   PostCategory _categoryFromApi(dynamic value) => '$value' == 'Q&A' ? PostCategory.qa : PostCategory.free;
   String _categoryToApi(PostCategory category) => category.label;
+
+  DateTime? _asDateTime(dynamic value) {
+    if (value == null) return null;
+    return DateTime.tryParse('$value')?.toLocal();
+  }
 
   int _asInt(dynamic value, {int fallback = 0}) {
     if (value is int) return value;

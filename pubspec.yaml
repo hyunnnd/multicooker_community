@@ -37,9 +37,12 @@ dependencies:
   go_router: ^17.0.1
   provider: ^6.1.5+1
   url_launcher: ^6.3.2
+  app_links: ^7.2.1
 
   multicooker_bluetooth_sdk:
-    path: packages/multicooker_bluetooth_sdk
+    git:
+      url: https://github.com/Dongun614/multicooker_bluetooth_sdk
+      ref: main
   rive: ^0.14.9
   image_picker: ^1.2.3
 

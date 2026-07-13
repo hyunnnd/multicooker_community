@@ -181,9 +181,7 @@ class _CommunityHomeSectionState extends State<CommunityHomeSection> {
                 CommunityPostCard(
                   post: post,
                   liked: provider.likedPostIds.contains(post.id),
-                  bookmarked: provider.bookmarkedPostIds.contains(post.id),
                   onLike: () => provider.togglePostLike(post.id),
-                  onBookmark: () => provider.toggleBookmark(post.id),
                   onTap: () => widget.onOpenPost(post.id),
                 ),
                 const SizedBox(height: 8),

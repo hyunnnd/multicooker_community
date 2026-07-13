@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 
 import '../../recipe/provider/recipe_provider.dart';
 import '../provider/cooking_session_provider.dart';
-import '../../../core/widgets/app_image.dart';
 
 class CookingCompleteScreen extends StatefulWidget {
   const CookingCompleteScreen({super.key});
@@ -19,6 +18,7 @@ class _CookingCompleteScreenState extends State<CookingCompleteScreen> {
   @override
   Widget build(BuildContext context) {
     final recipe = context.watch<CookingSessionProvider>().currentRecipe;
+    final recipeProvider = context.watch<RecipeProvider>();
     if (recipe == null) {
       return const Scaffold(body: Center(child: Text('완료된 조리가 없습니다.')));
     }
@@ -30,11 +30,14 @@ class _CookingCompleteScreenState extends State<CookingCompleteScreen> {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                AppImage(
-                  source: recipe.thumbnailUrl,
-                  fit: BoxFit.cover,
-                  placeholder: const ColoredBox(color: Color(0xFF0A2540)),
-                ),
+                recipe.thumbnailUrl == null
+                    ? const ColoredBox(color: Color(0xFF0A2540))
+                    : Image.network(
+                        recipe.thumbnailUrl!,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, _, _) =>
+                            const ColoredBox(color: Color(0xFF0A2540)),
+                      ),
                 const ColoredBox(color: Color(0x55000000)),
                 const Positioned(
                   top: 44,
@@ -126,10 +129,39 @@ class _CookingCompleteScreenState extends State<CookingCompleteScreen> {
                   label: const Text('후기 작성'),
                 ),
                 OutlinedButton.icon(
-                  onPressed: () =>
-                      context.read<RecipeProvider>().toggleSaved(recipe.id),
-                  icon: const Icon(Icons.bookmark_border),
-                  label: const Text('내 레시피 저장'),
+                  onPressed: recipeProvider.isSaving
+                      ? null
+                      : () async {
+                          final ok = await context
+                              .read<RecipeProvider>()
+                              .toggleSaved(recipe.id);
+                          if (!mounted) return;
+                          final updated = context
+                              .read<RecipeProvider>()
+                              .recipeById(recipe.id);
+                          _message(
+                            ok
+                                ? ((updated?.isSaved ?? false)
+                                      ? '저장한 레시피에 추가했습니다.'
+                                      : '저장한 레시피에서 해제했습니다.')
+                                : (context
+                                          .read<RecipeProvider>()
+                                          .errorMessage ??
+                                      '저장 상태를 변경하지 못했습니다.'),
+                          );
+                        },
+                  icon: Icon(
+                    (recipeProvider.recipeById(recipe.id)?.isSaved ??
+                            recipe.isSaved)
+                        ? Icons.bookmark
+                        : Icons.bookmark_border,
+                  ),
+                  label: Text(
+                    (recipeProvider.recipeById(recipe.id)?.isSaved ??
+                            recipe.isSaved)
+                        ? '저장됨'
+                        : '레시피 저장',
+                  ),
                 ),
                 OutlinedButton.icon(
                   onPressed: () => _message('커뮤니티 API 추가가 필요합니다.'),

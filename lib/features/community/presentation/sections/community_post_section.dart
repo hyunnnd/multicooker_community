@@ -46,7 +46,6 @@ class _CommunityPostDetailSectionState extends State<CommunityPostDetailSection>
       );
     }
     final liked = provider.likedPostIds.contains(post.id);
-    final bookmarked = provider.bookmarkedPostIds.contains(post.id);
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -107,7 +106,7 @@ class _CommunityPostDetailSectionState extends State<CommunityPostDetailSection>
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(post.username, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900)),
-                              Text(post.timeAgo, style: const TextStyle(fontSize: 11, color: Color(0xFF9CA3AF))),
+                              Text(post.relativeTime, style: const TextStyle(fontSize: 11, color: Color(0xFF9CA3AF))),
                             ],
                           ),
                           const Spacer(),
@@ -139,8 +138,7 @@ class _CommunityPostDetailSectionState extends State<CommunityPostDetailSection>
                           _PostAction(icon: liked ? Icons.favorite : Icons.favorite_border, text: '${post.likes}', color: liked ? const Color(0xFFEF4444) : const Color(0xFF9CA3AF), onTap: () => provider.togglePostLike(post.id)),
                           const SizedBox(width: 18),
                           _PostAction(icon: Icons.mode_comment_outlined, text: '${post.commentCount}', color: const Color(0xFF9CA3AF), onTap: () {}),
-                          const Spacer(),
-                          IconButton(onPressed: () => provider.toggleBookmark(post.id), icon: Icon(bookmarked ? Icons.bookmark : Icons.bookmark_border, color: bookmarked ? kCommunityOrange : const Color(0xFF9CA3AF))),
+
                         ],
                       ),
                     ],

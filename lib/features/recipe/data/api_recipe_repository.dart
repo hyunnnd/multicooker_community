@@ -5,127 +5,246 @@ import 'models/recipe.dart';
 import 'models/recipe_compatibility_type.dart';
 import 'models/recipe_ingredient.dart';
 import 'models/recipe_instruction_step.dart';
-import 'recipe_mock_data.dart';
+import 'models/recipe_step.dart';
+import 'recipe_identity.dart';
 import 'recipe_repository.dart';
-import 'recipe_image_assets.dart';
 
-class ApiRecipeRepository implements RecipeRepository {
-  ApiRecipeRepository(this._dio);
+class ApiRecipeRepository extends RecipeRepository {
+  ApiRecipeRepository(
+    this._companyDio,
+    this._localDio,
+    this._officialRepository,
+  );
 
-  final Dio _dio;
+  final Dio _companyDio;
+  final Dio _localDio;
+  final RecipeRepository _officialRepository;
 
   @override
-  Future<List<Recipe>> getRecipes() async {
-    try {
-      final response = await _dio.get<Map<String, dynamic>>(
-        '/recipe/gsq_suggest_recipes/50',
-      );
-      final items = response.data?['recipes'] as List<dynamic>? ?? const [];
-      final recipes = items
-          .map((item) => _recipeFromJson(Map<String, dynamic>.from(item as Map)))
-          .toList(growable: false);
-      if (recipes.isNotEmpty) return _mergeWithFigmaDefaults(recipes);
-    } catch (_) {
-      // 로컬 서버가 꺼져 있거나 API가 없으면 앱 화면 확인을 위해 mock으로 fallback합니다.
-    }
-    return RecipeMockData.recipes;
+  Future<List<Recipe>> getRecipes() => _officialRepository.getRecipes();
+
+  @override
+  Future<List<Recipe>> getSharedRecipes() async {
+    final response = await _companyDio.get<Object>(
+      '/recipe/personal_recipes/100',
+    );
+    final recipes = recipeMapsFromResponse(response.data);
+    return [
+      for (var index = 0; index < recipes.length; index++)
+        _fromCompanyApi(recipes[index], index),
+    ];
   }
 
+  @override
+  Future<void> uploadRecipe({
+    required String title,
+    String? description,
+    required List<RecipeStep> steps,
+  }) async {
+    await _companyDio.post<Object>(
+      '/recipe/upload',
+      data: {
+        'title': title,
+        if (description?.trim().isNotEmpty ?? false)
+          'description': description,
+        'steps': steps.map((step) => step.toJson()).toList(growable: false),
+      },
+    );
+  }
 
-  List<Recipe> _mergeWithFigmaDefaults(List<Recipe> serverRecipes) {
-    final result = <Recipe>[...RecipeMockData.recipes];
-    final seen = result.map((recipe) => recipe.title.replaceAll(' ', '').toLowerCase()).toSet();
-    for (final recipe in serverRecipes) {
-      final key = recipe.title.replaceAll(' ', '').toLowerCase();
-      if (key.isEmpty || seen.contains(key)) continue;
-      result.add(recipe);
-      seen.add(key);
+  @override
+  Future<Set<String>> getSavedRecipeIds() async {
+    final response = await _localDio.get<Map<String, dynamic>>(
+      '/users/me/saved-recipes',
+    );
+    final raw = response.data?['recipes'];
+    if (raw is! List) return const <String>{};
+    return raw
+        .whereType<Map>()
+        .map((item) {
+          final map = Map<String, dynamic>.from(item);
+          return (map['client_id'] ?? map['id'] ?? '').toString();
+        })
+        .where((id) => id.isNotEmpty)
+        .toSet();
+  }
+
+  @override
+  Future<void> saveRecipe(Recipe recipe) async {
+    var elapsedSeconds = 0;
+    final steps = <Map<String, dynamic>>[];
+    for (final step in recipe.cookerSteps) {
+      elapsedSeconds += step.timeMin * 60;
+      steps.add({
+        'temperature': step.temperature,
+        'time_offset': elapsedSeconds,
+        'label': step.label,
+      });
+    }
+    await _localDio.post<Object>(
+      '/users/me/saved-recipes/by-client-id',
+      data: {
+        'client_id': recipe.id,
+        'title': recipe.title,
+        'description': recipe.description,
+        'thumbnail_url': recipe.thumbnailUrl,
+        'author': recipe.author,
+        'is_official': recipe.isOfficial,
+        'is_personal': !recipe.isOfficial,
+        'total_time_min': recipe.totalTimeMin,
+        'max_temperature': recipe.cookerSteps.isEmpty
+            ? 0
+            : recipe.cookerSteps
+                .map((step) => step.temperature)
+                .reduce((a, b) => a > b ? a : b),
+        'steps': steps,
+      },
+    );
+  }
+
+  @override
+  Future<void> unsaveRecipe(String recipeId) async {
+    await _localDio.delete<Object>(
+      '/users/me/saved-recipes/by-client-id/${Uri.encodeComponent(recipeId)}',
+    );
+  }
+
+  Recipe _fromCompanyApi(Map<String, dynamic> json, int index) {
+    final rawSteps = recipeStepsFromJson(json);
+    final steps = rawSteps
+        .map(
+          (step) => RecipeStep(
+            temperature: numberAsDouble(
+              step['temperature'] ?? step['temp'],
+              fallback: 180,
+            ),
+            timeOffset: numberAsDouble(
+              step['time_offset'] ?? step['timeOffset'] ?? step['seconds'],
+            ),
+          ),
+        )
+        .toList(growable: false);
+
+    final cookerSteps = <CookerStep>[];
+    for (var stepIndex = 0; stepIndex < steps.length; stepIndex++) {
+      cookerSteps.add(
+        CookerStep(
+          id: '${companyRecipeClientId(json, index)}-c$stepIndex',
+          stepNo: stepIndex + 1,
+          label: (rawSteps[stepIndex]['label'] ?? '${stepIndex + 1}단계 조리')
+              .toString(),
+          temperature: steps[stepIndex].temperature.round(),
+          timeMin: _stepMinutes(steps, stepIndex),
+        ),
+      );
+    }
+
+    final rawDescription =
+        (json['description'] ?? '사용자가 공유한 멀티쿠커 레시피입니다.')
+            .toString();
+    final instructionTexts = _instructionTexts(rawDescription);
+    final totalMinutes = cookerSteps.fold<int>(
+      0,
+      (sum, step) => sum + step.timeMin,
+    );
+    final id = companyRecipeClientId(json, index);
+    final title = (json['title'] ?? json['name'] ?? '사용자 레시피').toString();
+
+    return Recipe(
+      id: id,
+      title: title,
+      description: _visibleDescription(rawDescription),
+      thumbnailUrl: _nullableString(
+        json['thumbnail_url'] ?? json['image_url'] ?? json['image'],
+      ),
+      totalTimeMin: totalMinutes <= 0 ? 10 : totalMinutes,
+      difficulty: (json['difficulty'] ?? '보통').toString(),
+      servings: numberAsInt(json['servings'], fallback: 1).clamp(1, 99).toInt(),
+      compatibilityType: RecipeCompatibilityType.fullAuto,
+      ingredients: _ingredientsFromDescription(rawDescription),
+      instructionSteps: [
+        for (var stepIndex = 0; stepIndex < cookerSteps.length; stepIndex++)
+          RecipeInstructionStep(
+            id: '$id-i$stepIndex',
+            stepNo: stepIndex + 1,
+            title:
+                instructionTexts[stepIndex]?.$1 ?? cookerSteps[stepIndex].label,
+            description:
+                instructionTexts[stepIndex]?.$2 ??
+                '${cookerSteps[stepIndex].temperature}°C에서 ${cookerSteps[stepIndex].timeMin}분 조리합니다.',
+            linkedCookerStepId: cookerSteps[stepIndex].id,
+          ),
+      ],
+      cookerSteps: cookerSteps,
+      author: (json['author'] ?? json['nickname'] ?? '나의 레시피').toString(),
+    );
+  }
+
+  int _stepMinutes(List<RecipeStep> steps, int index) {
+    if (steps.isEmpty) return 1;
+    final current = steps[index].timeOffset;
+    final previous = index == 0 ? 0 : steps[index - 1].timeOffset;
+    var seconds = current - previous;
+    if (seconds <= 0 && index + 1 < steps.length) {
+      seconds = steps[index + 1].timeOffset - current;
+    }
+    if (seconds <= 0) seconds = 300;
+    return (seconds / 60).ceil().clamp(1, 999).toInt();
+  }
+
+  String _visibleDescription(String description) {
+    final markers = [
+      description.indexOf('\n\n재료\n'),
+      description.indexOf('\n\n조리 단계\n'),
+    ].where((index) => index != -1).toList();
+    if (markers.isEmpty) return description;
+    markers.sort();
+    return description.substring(0, markers.first);
+  }
+
+  List<RecipeIngredient> _ingredientsFromDescription(String description) {
+    final marker = description.indexOf('\n\n재료\n');
+    if (marker == -1) return const [];
+    final section = description.substring(marker + '\n\n재료\n'.length);
+    final end = section.indexOf('\n\n조리 단계\n');
+    final ingredientText = end == -1 ? section : section.substring(0, end);
+    return ingredientText
+        .split('\n')
+        .where((line) => line.trim().startsWith('- '))
+        .map((line) {
+          final value = line.trim().substring(2).trim();
+          final parts = value.split(RegExp(r'\s+'));
+          return RecipeIngredient(
+            name: parts.first,
+            amount: parts.length > 1 ? parts.skip(1).join(' ') : '',
+          );
+        })
+        .toList(growable: false);
+  }
+
+  Map<int, (String, String)> _instructionTexts(String description) {
+    final marker = description.indexOf('\n\n조리 단계\n');
+    if (marker == -1) return const {};
+    final lines = description
+        .substring(marker + '\n\n조리 단계\n'.length)
+        .split('\n');
+    final result = <int, (String, String)>{};
+    for (var i = 0; i < lines.length; i += 2) {
+      final match = RegExp(r'^(\d+)\.\s*(.*)$').firstMatch(lines[i].trim());
+      if (match == null) continue;
+      final stepIndex = int.parse(match.group(1)!) - 1;
+      final title = match.group(2)!.trim();
+      final body = i + 1 < lines.length ? lines[i + 1].trim() : '';
+      result[stepIndex] = (
+        title.isEmpty ? '${stepIndex + 1}단계 조리' : title,
+        body,
+      );
     }
     return result;
   }
 
-  Recipe _recipeFromJson(Map<String, dynamic> json) {
-    final rawSteps = ((json['steps'] as List?) ?? const [])
-        .map((item) => Map<String, dynamic>.from(item as Map))
-        .toList(growable: false);
-    final cookerSteps = _toCookerSteps('${json['id'] ?? json['title']}', rawSteps);
-    final totalTime = cookerSteps.fold<int>(0, (sum, step) => sum + step.timeMin);
-
-    return Recipe(
-      id: '${json['id'] ?? json['title']}',
-      title: json['title'] as String? ?? '',
-      description: json['description'] as String? ?? '',
-      thumbnailUrl: RecipeImageAssets.resolve(json['title'] as String? ?? '', json['thumbnail_url'] as String?),
-      totalTimeMin: totalTime == 0 ? 10 : totalTime,
-      difficulty: _difficultyFromTitle(json['title'] as String? ?? ''),
-      servings: 2,
-      compatibilityType: _compatibilityFromTitle(json['title'] as String? ?? ''),
-      isOfficial: json['is_official'] as bool? ?? json['is_gsq_suggested'] as bool? ?? false,
-      author: json['author'] as String? ?? 'Graphene Square',
-      ingredients: const [RecipeIngredient(name: '레시피 재료', amount: '상세 참고')],
-      instructionSteps: cookerSteps
-          .map(
-            (step) => RecipeInstructionStep(
-              id: '${step.id}-instruction',
-              stepNo: step.stepNo,
-              title: step.label,
-              description: '${step.temperature}℃로 ${step.timeMin}분 조리합니다.',
-              linkedCookerStepId: step.id,
-              estimatedTimeMin: step.timeMin,
-            ),
-          )
-          .toList(growable: false),
-      cookerSteps: cookerSteps,
-    );
-  }
-
-  RecipeCompatibilityType _compatibilityFromTitle(String title) {
-    final value = title.replaceAll(' ', '').toLowerCase();
-    if (value.contains('계란') || value.contains('솥밥') || value == '밥') return RecipeCompatibilityType.fullAuto;
-    if (value.contains('10분') || value.contains('quick')) return RecipeCompatibilityType.manualOnly;
-    if (value.contains('닭갈비') || value.contains('리조또')) return RecipeCompatibilityType.complexGuidedCook;
-    return RecipeCompatibilityType.guidedCook;
-  }
-
-  String _difficultyFromTitle(String title) {
-    final value = title.replaceAll(' ', '').toLowerCase();
-    if (value.contains('스테이크') || value.contains('닭갈비') || value.contains('리조또')) return '보통';
-    return '쉬움';
-  }
-
-  List<CookerStep> _toCookerSteps(String recipeId, List<Map<String, dynamic>> rawSteps) {
-    if (rawSteps.isEmpty) {
-      return [
-        CookerStep(
-          id: '$recipeId-c1',
-          stepNo: 1,
-          label: '조리',
-          temperature: 180,
-          timeMin: 10,
-        ),
-      ];
-    }
-
-    final offsets = rawSteps
-        .map((step) => (step['time_offset'] as num?)?.toDouble() ?? 0)
-        .toList(growable: false);
-
-    return List.generate(rawSteps.length, (index) {
-      final currentOffset = offsets[index];
-      final nextOffset = index + 1 < offsets.length ? offsets[index + 1] : null;
-      final durationSeconds = nextOffset != null
-          ? nextOffset - currentOffset
-          : (currentOffset <= 0 ? 600.0 : 300.0);
-      final timeMin = (durationSeconds / 60).round().clamp(1, 999);
-      final temperature = ((rawSteps[index]['temperature'] as num?)?.round() ?? 180)
-          .clamp(0, 300);
-      return CookerStep(
-        id: '$recipeId-c${index + 1}',
-        stepNo: index + 1,
-        label: 'Step ${index + 1}',
-        temperature: temperature,
-        timeMin: timeMin,
-      );
-    });
+  String? _nullableString(Object? value) {
+    final text = value?.toString().trim() ?? '';
+    return text.isEmpty ? null : text;
   }
 }

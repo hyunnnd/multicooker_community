@@ -14,8 +14,11 @@ class DeviceProvider extends ChangeNotifier {
 
   final DeviceRepository _repository;
   final CookerService _service;
-  StreamSubscription<bool>? _connectionSubscription;
+  StreamSubscription<ConnectionEvent>? _connectionSubscription;
   StreamSubscription<CookerState>? _stateSubscription;
+  StreamSubscription<List<String>>? _scanSubscription;
+  Timer? _scanTimeout;
+  String? _lastConnectedName;
 
   bool isConnected = false;
   bool isScanning = false;
@@ -24,6 +27,7 @@ class DeviceProvider extends ChangeNotifier {
   String? errorMessage;
   CookerState? status;
   List<String> devices = const [];
+  ConnectionEvent? connectionEvent;
 
   Future<void> scanDevices() async {
     isScanning = true;
@@ -31,14 +35,57 @@ class DeviceProvider extends ChangeNotifier {
     devices = const [];
     notifyListeners();
     try {
-      devices = await _scanWithInitializationRetry();
-      if (devices.isEmpty) errorMessage = '주변에서 Graphene Cooker를 찾지 못했습니다.';
+      await _startLiveScan();
     } catch (error) {
       errorMessage = _message(error);
-    } finally {
       isScanning = false;
       notifyListeners();
     }
+  }
+
+  Future<void> _startLiveScan({bool afterConnectionLoss = false}) async {
+    await _scanSubscription?.cancel();
+    _scanTimeout?.cancel();
+    _scanSubscription = _service.scanResults.listen((next) {
+      devices = next;
+      notifyListeners();
+    });
+    await _startScanWithInitializationRetry();
+    _scanTimeout = Timer(const Duration(seconds: 8), () async {
+      if (isConnected || !isScanning) return;
+      await _service.stopScan();
+      isScanning = false;
+      if (devices.isEmpty) {
+        errorMessage = afterConnectionLoss
+            ? '쿠커를 다시 찾지 못했습니다. 가까이 두고 다시 검색해 주세요.'
+            : '주변에서 Graphene Cooker를 찾지 못했습니다.';
+      }
+      notifyListeners();
+    });
+  }
+
+  Future<void> _startScanWithInitializationRetry() async {
+    for (var attempt = 0; attempt < 5; attempt++) {
+      try {
+        await _service.startScan();
+        return;
+      } catch (error) {
+        if (!error.toString().contains('CBManagerStateUnknown') ||
+            attempt == 4) {
+          rethrow;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+      }
+    }
+  }
+
+  Future<void> _stopLiveScan() async {
+    _scanTimeout?.cancel();
+    _scanTimeout = null;
+    await _scanSubscription?.cancel();
+    _scanSubscription = null;
+    await _service.stopScan();
+    isScanning = false;
   }
 
   Future<List<String>> _scanWithInitializationRetry() async {
@@ -56,14 +103,29 @@ class DeviceProvider extends ChangeNotifier {
     return const [];
   }
 
+  Future<void> stopScan() async {
+    await _stopLiveScan();
+    notifyListeners();
+  }
+
+  Future<void> refreshDevicesForTests() async {
+    try {
+      devices = await _scanWithInitializationRetry();
+    } finally {
+      notifyListeners();
+    }
+  }
+
   Future<bool> connect(String name) async {
     isBusy = true;
     errorMessage = null;
     notifyListeners();
     try {
+      await _stopLiveScan();
       await _service.connect(name);
       isConnected = _service.isConnected;
       deviceName = name;
+      if (isConnected) _lastConnectedName = name;
       return isConnected;
     } catch (error) {
       await _service.disconnect();
@@ -78,6 +140,7 @@ class DeviceProvider extends ChangeNotifier {
   }
 
   Future<void> disconnect() async {
+    _lastConnectedName = null;
     await _service.disconnect();
     isConnected = false;
     deviceName = '연결된 기기 없음';
@@ -156,9 +219,30 @@ class DeviceProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _onConnection(bool connected) {
-    isConnected = connected;
-    if (!connected) deviceName = '연결된 기기 없음';
+  void _onConnection(ConnectionEvent event) {
+    connectionEvent = event;
+    isConnected = event == ConnectionEvent.connected;
+    if (isConnected) {
+      errorMessage = null;
+      unawaited(_stopLiveScan());
+    } else {
+      deviceName = '연결된 기기 없음';
+      errorMessage = switch (event) {
+        ConnectionEvent.disconnectedByUser => null,
+        ConnectionEvent.disconnectedByAdapterOff =>
+          'Bluetooth가 꺼져 연결이 해제되었습니다. Bluetooth를 켜 주세요.',
+        ConnectionEvent.disconnectedByLoss =>
+          '쿠커와의 연결이 끊겼습니다. 가까이 두면 자동 재연결을 시도합니다.',
+        ConnectionEvent.connected => null,
+      };
+      if (event == ConnectionEvent.disconnectedByLoss &&
+          _lastConnectedName != null &&
+          !isScanning) {
+        isScanning = true;
+        devices = const [];
+        unawaited(_startLiveScan(afterConnectionLoss: true));
+      }
+    }
     notifyListeners();
   }
 
@@ -180,6 +264,8 @@ class DeviceProvider extends ChangeNotifier {
   void dispose() {
     _connectionSubscription?.cancel();
     _stateSubscription?.cancel();
+    _scanTimeout?.cancel();
+    _scanSubscription?.cancel();
     _service.dispose();
     super.dispose();
   }

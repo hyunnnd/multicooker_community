@@ -17,7 +17,6 @@ const _orangeSoft = Color(0xFFFFEDD5);
 const _background = Color(0xFFFFFFF5);
 const _ink = Color(0xFF292929);
 const _sub = Color(0xFF77736C);
-const _border = Color(0xFFE8E2D7);
 const _danger = Color(0xFFD92D20);
 
 class RecipeCookingFlowScreen extends StatefulWidget {
@@ -35,6 +34,15 @@ class _RecipeCookingFlowScreenState extends State<RecipeCookingFlowScreen> {
   CookingControlMode _mode = CookingControlMode.automatic;
   int _visiblePage = 0;
   int _lastSessionPage = -1;
+
+  void _goToPage(int page, int maxPage) {
+    final next = page.clamp(0, maxPage);
+    _pageController.animateToPage(
+      next,
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
+    );
+  }
 
   @override
   void dispose() {
@@ -78,80 +86,39 @@ class _RecipeCookingFlowScreenState extends State<RecipeCookingFlowScreen> {
     return Scaffold(
       backgroundColor: _background,
       appBar: AppBar(
+        backgroundColor: _background,
         leading: IconButton(
-          onPressed: () => context.pop(),
+          onPressed: () =>
+              context.canPop() ? context.pop() : context.go('/home'),
           icon: const Icon(Icons.arrow_back),
         ),
-        title: Text(recipe.title),
+        title: Text(
+          _visiblePage == 0
+              ? 'STEP 0 · 예열'
+              : 'STEP $_visiblePage / ${recipe.instructionSteps.length}',
+          style: const TextStyle(
+            color: _orange,
+            fontSize: 15,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
         actions: [
-          if (active)
-            IconButton(
-              tooltip: '조리 종료',
-              onPressed: () => _stop(context, session),
-              icon: const Icon(Icons.stop_circle_outlined, color: _danger),
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: Center(
+              child: _ModePill(
+                mode: _mode,
+                enabled: !active,
+                onChanged: (mode) => setState(() => _mode = mode),
+              ),
             ),
+          ),
         ],
       ),
       body: SafeArea(
         top: false,
         child: Column(
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-              child: SegmentedButton<CookingControlMode>(
-                segments: const [
-                  ButtonSegment(
-                    value: CookingControlMode.automatic,
-                    icon: Icon(Icons.autorenew),
-                    label: Text('자동'),
-                  ),
-                  ButtonSegment(
-                    value: CookingControlMode.semiAutomatic,
-                    icon: Icon(Icons.touch_app_outlined),
-                    label: Text('반자동'),
-                  ),
-                ],
-                selected: {_mode},
-                onSelectionChanged: active
-                    ? null
-                    : (value) => setState(() => _mode = value.first),
-                style: ButtonStyle(
-                  foregroundColor: WidgetStateProperty.resolveWith(
-                    (states) => states.contains(WidgetState.selected)
-                        ? Colors.white
-                        : _ink,
-                  ),
-                  backgroundColor: WidgetStateProperty.resolveWith(
-                    (states) => states.contains(WidgetState.selected)
-                        ? _orange
-                        : _orangeSoft,
-                  ),
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 4),
-              child: Row(
-                children: [
-                  Text(
-                    _visiblePage == 0
-                        ? 'STEP 0 · 예열'
-                        : 'STEP $_visiblePage / ${recipe.instructionSteps.length}',
-                    style: const TextStyle(
-                      color: _orange,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const Spacer(),
-                  Text(
-                    _mode == CookingControlMode.automatic
-                        ? '시간 완료 시 자동 전환'
-                        : '사용자 확인 후 전환',
-                    style: const TextStyle(color: _sub, fontSize: 12),
-                  ),
-                ],
-              ),
-            ),
             Expanded(
               child: PageView.builder(
                 controller: _pageController,
@@ -176,9 +143,13 @@ class _RecipeCookingFlowScreenState extends State<RecipeCookingFlowScreen> {
                 },
               ),
             ),
-            _PageDots(
+            _StepPager(
               count: recipe.instructionSteps.length + 1,
               current: _visiblePage,
+              onPrevious: () =>
+                  _goToPage(_visiblePage - 1, recipe.instructionSteps.length),
+              onNext: () =>
+                  _goToPage(_visiblePage + 1, recipe.instructionSteps.length),
             ),
             const SizedBox(height: 10),
           ],
@@ -186,14 +157,99 @@ class _RecipeCookingFlowScreenState extends State<RecipeCookingFlowScreen> {
       ),
     );
   }
+}
 
-  Future<void> _stop(
-    BuildContext context,
-    CookingSessionProvider session,
-  ) async {
-    await session.stopCooking();
-    if (context.mounted) context.pop();
-  }
+class _ModePill extends StatelessWidget {
+  const _ModePill({
+    required this.mode,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  final CookingControlMode mode;
+  final bool enabled;
+  final ValueChanged<CookingControlMode> onChanged;
+
+  bool get _automatic => mode == CookingControlMode.automatic;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: 114,
+    height: 34,
+    padding: const EdgeInsets.all(3),
+    decoration: BoxDecoration(
+      color: _orangeSoft,
+      borderRadius: BorderRadius.circular(8),
+    ),
+    child: Stack(
+      children: [
+        AnimatedAlign(
+          alignment: _automatic ? Alignment.centerLeft : Alignment.centerRight,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          child: Container(
+            width: 54,
+            height: 28,
+            decoration: BoxDecoration(
+              color: _orange,
+              borderRadius: BorderRadius.circular(7),
+            ),
+          ),
+        ),
+        Row(
+          children: [
+            _ModeButton(
+              label: '자동',
+              selected: _automatic,
+              enabled: enabled,
+              onTap: () => onChanged(CookingControlMode.automatic),
+            ),
+            _ModeButton(
+              label: '반자동',
+              selected: !_automatic,
+              enabled: enabled,
+              onTap: () => onChanged(CookingControlMode.semiAutomatic),
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
+}
+
+class _ModeButton extends StatelessWidget {
+  const _ModeButton({
+    required this.label,
+    required this.selected,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: enabled ? onTap : null,
+    borderRadius: BorderRadius.circular(7),
+    child: SizedBox(
+      width: 54,
+      height: 28,
+      child: Center(
+        child: AnimatedDefaultTextStyle(
+          duration: const Duration(milliseconds: 160),
+          style: TextStyle(
+            color: selected ? Colors.white : _sub,
+            fontSize: 12,
+            fontWeight: FontWeight.w900,
+          ),
+          child: Text(label),
+        ),
+      ),
+    ),
+  );
 }
 
 class _PreheatPage extends StatelessWidget {
@@ -210,14 +266,14 @@ class _PreheatPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final device = context.watch<DeviceProvider>();
-    final target = recipe.id == 'egg'
-        ? 50
-        : recipe.cookerSteps.isEmpty
+    final sameRecipe = session.currentRecipe?.id == recipe.id;
+    final phase = sameRecipe ? session.state.phase : CookingPhase.idle;
+    final defaultTarget = recipe.cookerSteps.isEmpty
         ? 200
-        : recipe.cookerSteps.first.temperature;
-    final phase = session.currentRecipe?.id == recipe.id
-        ? session.state.phase
-        : CookingPhase.idle;
+        : recipePreheatTarget(recipe);
+    final target = sameRecipe && session.state.targetTemperature > 0
+        ? session.state.targetTemperature
+        : defaultTarget;
     final progress = target <= 0
         ? 0.0
         : (session.state.currentTemperature / target).clamp(0.0, 1.0);
@@ -232,9 +288,17 @@ class _PreheatPage extends StatelessWidget {
           : '설정된 조리 온도까지 자동으로 올린 뒤 다음 단계로 이동합니다.',
       child: Column(
         children: [
-          const Expanded(child: CookingRiveAnimation()),
+          const Expanded(
+            flex: 3,
+            child: CookingRiveAnimation(
+              backgroundColor: _background,
+              scale: 2.1,
+            ),
+          ),
           const SizedBox(height: 14),
           _ValueRow(label: '목표 온도', value: '$target°C'),
+          if (phase == CookingPhase.preheating)
+            _CookerSettingsButton(session: session, temperature: target),
           _ValueRow(
             label: '현재 온도',
             value: '${session.state.currentTemperature}°C',
@@ -333,17 +397,50 @@ class _CookingStepPage extends StatelessWidget {
       description: complete ? '맛있게 완성된 요리를 확인해보세요.' : instruction.description,
       child: Column(
         children: [
-          const Expanded(child: CookingRiveAnimation()),
+          if (complete)
+            Expanded(
+              child: _CompleteView(recipe: recipe, session: session),
+            )
+          else
+            const Expanded(
+              flex: 3,
+              child: CookingRiveAnimation(
+                backgroundColor: _background,
+                scale: 2.1,
+              ),
+            ),
           const SizedBox(height: 12),
-          if (step != null) ...[
-            _ValueRow(label: '목표 온도', value: '${step.temperature}°C'),
-            _ValueRow(label: '조리 시간', value: '${step.timeMin}분'),
+          if (complete)
+            const SizedBox.shrink()
+          else if (step != null) ...[
+            _ValueRow(
+              label: '목표 온도',
+              value:
+                  '${current ? session.state.targetTemperature : step.temperature}°C',
+            ),
+            if (current)
+              _CookerSettingsButton(
+                session: session,
+                temperature: session.state.targetTemperature,
+                minutes: (session.state.remainingSeconds / 60).ceil().clamp(
+                  1,
+                  90,
+                ),
+              ),
+            _ValueRow(
+              label: '조리 시간',
+              value: current
+                  ? '${(session.state.remainingSeconds / 60).ceil().clamp(1, 90)}분'
+                  : '${step.timeMin}분',
+            ),
           ] else
             _ValueRow(
               label: '진행 시간',
               value: '${instruction.estimatedTimeMin ?? 0}분',
             ),
-          if (current) ...[
+          if (complete)
+            const SizedBox.shrink()
+          else if (current) ...[
             const SizedBox(height: 8),
             Text(
               _time(session.state.remainingSeconds),
@@ -355,13 +452,6 @@ class _CookingStepPage extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             _RunningControls(session: session, stopLabel: '조리 종료'),
-          ] else if (complete) ...[
-            const SizedBox(height: 14),
-            FilledButton(
-              onPressed: session.finishSession,
-              style: _primaryStyle,
-              child: const Text('완료'),
-            ),
           ] else if (mode == CookingControlMode.semiAutomatic && ready) ...[
             const SizedBox(height: 14),
             FilledButton.icon(
@@ -393,6 +483,110 @@ class _CookingStepPage extends StatelessWidget {
   }
 }
 
+class _CompleteView extends StatelessWidget {
+  const _CompleteView({required this.recipe, required this.session});
+
+  final Recipe recipe;
+  final CookingSessionProvider session;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    mainAxisAlignment: MainAxisAlignment.center,
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      const Icon(Icons.check_circle, color: _orange, size: 74),
+      const SizedBox(height: 18),
+      Text(
+        recipe.title,
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          color: _ink,
+          fontSize: 24,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+      const SizedBox(height: 8),
+      const Text(
+        '조리가 완료되었습니다.',
+        textAlign: TextAlign.center,
+        style: TextStyle(color: _sub),
+      ),
+      const SizedBox(height: 22),
+      Row(
+        children: [
+          Expanded(
+            child: _CompleteStat(
+              label: '조리 시간',
+              value: '${recipe.totalTimeMin}분',
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _CompleteStat(
+              label: '쿠커 단계',
+              value: '${recipe.cookerSteps.length}개',
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 18),
+      OutlinedButton.icon(
+        onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('후기 작성 기능은 API 연결 후 제공됩니다.')),
+        ),
+        icon: const Icon(Icons.rate_review_outlined),
+        label: const Text('후기 작성'),
+      ),
+      const SizedBox(height: 8),
+      OutlinedButton.icon(
+        onPressed: () => context.push('/community'),
+        icon: const Icon(Icons.ios_share),
+        label: const Text('커뮤니티에 공유'),
+      ),
+      const SizedBox(height: 8),
+      FilledButton.icon(
+        onPressed: () async {
+          await session.finishSession();
+          if (context.mounted) context.go('/home');
+        },
+        style: _primaryStyle,
+        icon: const Icon(Icons.home_outlined),
+        label: const Text('홈으로 돌아가기'),
+      ),
+    ],
+  );
+}
+
+class _CompleteStat extends StatelessWidget {
+  const _CompleteStat({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      color: _orangeSoft,
+      borderRadius: BorderRadius.circular(8),
+    ),
+    child: Column(
+      children: [
+        Text(label, style: const TextStyle(color: _sub, fontSize: 12)),
+        const SizedBox(height: 5),
+        Text(
+          value,
+          style: const TextStyle(
+            color: _ink,
+            fontSize: 18,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 class _StepSurface extends StatelessWidget {
   const _StepSurface({
     required this.title,
@@ -410,8 +604,8 @@ class _StepSurface extends StatelessWidget {
     child: Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: _border),
+        color: _background,
+        border: Border.all(color: _background),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Column(
@@ -470,6 +664,134 @@ class _RunningControls extends StatelessWidget {
   );
 }
 
+class _CookerSettingsButton extends StatelessWidget {
+  const _CookerSettingsButton({
+    required this.session,
+    required this.temperature,
+    this.minutes,
+  });
+
+  final CookingSessionProvider session;
+  final int temperature;
+  final int? minutes;
+
+  @override
+  Widget build(BuildContext context) => Align(
+    alignment: Alignment.centerRight,
+    child: TextButton.icon(
+      onPressed: session.isPaused
+          ? null
+          : () => _showCookerSettingsDialog(
+              context,
+              session,
+              temperature,
+              minutes,
+            ),
+      icon: const Icon(Icons.tune, size: 18),
+      label: Text(minutes == null ? '온도 변경' : '온도/시간 변경'),
+    ),
+  );
+}
+
+Future<void> _showCookerSettingsDialog(
+  BuildContext context,
+  CookingSessionProvider session,
+  int currentTemperature,
+  int? currentMinutes,
+) async {
+  var temperature = currentTemperature.toDouble().clamp(40, 250).toDouble();
+  var minutes = (currentMinutes ?? 1).toDouble().clamp(1, 90).toDouble();
+  var sending = false;
+  await showDialog<void>(
+    context: context,
+    builder: (dialogContext) => StatefulBuilder(
+      builder: (context, setState) => AlertDialog(
+        backgroundColor: _background,
+        title: Text(currentMinutes == null ? '목표 온도 변경' : '온도/시간 변경'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '${temperature.round()}°C',
+              style: const TextStyle(
+                color: _orange,
+                fontSize: 28,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            Slider(
+              value: temperature,
+              min: 40,
+              max: 250,
+              divisions: 210,
+              activeColor: _orange,
+              inactiveColor: _orangeSoft,
+              label: '${temperature.round()}°C',
+              onChanged: sending
+                  ? null
+                  : (value) => setState(() => temperature = value),
+            ),
+            if (currentMinutes != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                '${minutes.round()}분',
+                style: const TextStyle(
+                  color: _ink,
+                  fontSize: 24,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              Slider(
+                value: minutes,
+                min: 1,
+                max: 90,
+                divisions: 89,
+                activeColor: _orange,
+                inactiveColor: _orangeSoft,
+                label: '${minutes.round()}분',
+                onChanged: sending
+                    ? null
+                    : (value) => setState(() => minutes = value),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: sending ? null : () => Navigator.pop(dialogContext),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            style: _primaryStyle,
+            onPressed: sending
+                ? null
+                : () async {
+                    setState(() => sending = true);
+                    try {
+                      await session.updateCookerSettings(
+                        temperature: temperature.round(),
+                        durationMinutes: currentMinutes == null
+                            ? null
+                            : minutes.round(),
+                      );
+                      if (dialogContext.mounted) Navigator.pop(dialogContext);
+                    } catch (error) {
+                      if (!context.mounted) return;
+                      setState(() => sending = false);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('설정을 변경하지 못했습니다: $error')),
+                      );
+                    }
+                  },
+            child: Text(sending ? '전송 중...' : '적용'),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
 class _ValueRow extends StatelessWidget {
   const _ValueRow({required this.label, required this.value});
 
@@ -512,6 +834,42 @@ class _PageDots extends StatelessWidget {
           ),
         ),
     ],
+  );
+}
+
+class _StepPager extends StatelessWidget {
+  const _StepPager({
+    required this.count,
+    required this.current,
+    required this.onPrevious,
+    required this.onNext,
+  });
+
+  final int count;
+  final int current;
+  final VoidCallback onPrevious;
+  final VoidCallback onNext;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 18),
+    child: Row(
+      children: [
+        IconButton(
+          tooltip: '이전 단계',
+          onPressed: current == 0 ? null : onPrevious,
+          icon: const Icon(Icons.chevron_left),
+        ),
+        Expanded(
+          child: _PageDots(count: count, current: current),
+        ),
+        IconButton(
+          tooltip: '다음 단계',
+          onPressed: current >= count - 1 ? null : onNext,
+          icon: const Icon(Icons.chevron_right),
+        ),
+      ],
+    ),
   );
 }
 

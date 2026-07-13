@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../data/community_repository.dart';
@@ -11,9 +13,14 @@ class PopularPostsResult {
 }
 
 class CommunityProvider extends ChangeNotifier {
-  CommunityProvider(this._repository);
+  CommunityProvider(this._repository) {
+    _relativeTimeTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (!_disposed) notifyListeners();
+    });
+  }
 
   final CommunityRepository _repository;
+  late final Timer _relativeTimeTimer;
   bool _refreshing = false;
   bool _disposed = false;
 
@@ -23,7 +30,6 @@ class CommunityProvider extends ChangeNotifier {
   var _notifications = <CommunityNotification>[];
 
   final likedPostIds = <int>{};
-  final bookmarkedPostIds = <int>{};
   final likedCommentIds = <int>{};
   final likedReplyIds = <int>{};
   final likedReviewIds = <int>{};
@@ -66,6 +72,7 @@ class CommunityProvider extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _relativeTimeTimer.cancel();
     super.dispose();
   }
 
@@ -97,7 +104,6 @@ class CommunityProvider extends ChangeNotifier {
           _notices = const [];
           _notifications = const [];
           likedPostIds.clear();
-          bookmarkedPostIds.clear();
           likedCommentIds.clear();
           likedReplyIds.clear();
           likedReviewIds.clear();
@@ -114,9 +120,6 @@ class CommunityProvider extends ChangeNotifier {
     likedPostIds
       ..clear()
       ..addAll(_posts.where((post) => post.isLiked).map((post) => post.id));
-    bookmarkedPostIds
-      ..clear()
-      ..addAll(_posts.where((post) => post.isBookmarked).map((post) => post.id));
     likedCommentIds.clear();
     likedReplyIds.clear();
     for (final post in _posts) {
@@ -415,18 +418,6 @@ class CommunityProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> toggleBookmark(int id) async {
-    final wasBookmarked = bookmarkedPostIds.contains(id);
-    try {
-      final updated = wasBookmarked ? await _repository.unbookmarkPost(id) : await _repository.bookmarkPost(id);
-      _replacePost(updated);
-      _syncReactionSetsFromDb();
-    } catch (error) {
-      errorMessage = '북마크 저장 실패: $error';
-    }
-    notifyListeners();
-  }
-
   Future<void> createReview({
     required String recipeId,
     required String recipeTitle,
@@ -490,16 +481,25 @@ class CommunityProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> createPost({required PostCategory category, required String title, required String content, String? imageUrl}) async {
-    if (title.trim().isEmpty || content.trim().isEmpty) return;
+  Future<bool> createPost({required PostCategory category, required String title, required String content, String? imageUrl}) async {
+    if (title.trim().isEmpty || content.trim().isEmpty) return false;
     try {
-      final post = await _repository.createPost(category: category, title: title.trim(), content: content.trim(), imageUrl: imageUrl);
+      final post = await _repository.createPost(
+        category: category,
+        title: title.trim(),
+        content: content.trim(),
+        imageUrl: imageUrl,
+      );
       _posts = [post, ..._posts];
       _syncReactionSetsFromDb();
+      errorMessage = null;
+      notifyListeners();
+      return true;
     } catch (error) {
       errorMessage = '게시글 등록 실패: $error';
+      notifyListeners();
+      return false;
     }
-    notifyListeners();
   }
 
   Future<void> editPost(int postId, {required PostCategory category, required String title, required String content, String? imageUrl}) async {
@@ -518,7 +518,6 @@ class CommunityProvider extends ChangeNotifier {
       await _repository.deletePost(postId);
       _posts = _posts.where((post) => post.id != postId).toList();
       likedPostIds.remove(postId);
-      bookmarkedPostIds.remove(postId);
     } catch (error) {
       errorMessage = '게시글 삭제 실패: $error';
     }

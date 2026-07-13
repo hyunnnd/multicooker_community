@@ -504,7 +504,6 @@ const communityNotices = <CommunityNotice>[
 
 ■ 추가된 기능
 • 댓글 답글 기능
-• 게시글 북마크 기능
 • 인기 게시글 자동 분류 (좋아요 100개 이상)
 • 레시피 상세 화면에서 후기와 별점 확인
 

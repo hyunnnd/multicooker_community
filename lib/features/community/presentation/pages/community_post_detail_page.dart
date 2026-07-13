@@ -1,152 +1,5 @@
 part of '../community_screen.dart';
 
-
-Future<bool> _showFullScreenDeleteConfirm(
-  BuildContext context, {
-  required String title,
-  required String message,
-  String confirmLabel = '삭제하기',
-}) async {
-  final result = await showGeneralDialog<bool>(
-    context: context,
-    barrierDismissible: true,
-    barrierLabel: 'delete-confirm',
-    barrierColor: Colors.black.withOpacity(0.55),
-    transitionDuration: const Duration(milliseconds: 180),
-    pageBuilder: (context, animation, secondaryAnimation) {
-      return Material(
-        color: Colors.transparent,
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Center(
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.fromLTRB(22, 24, 22, 18),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(28),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.18),
-                      blurRadius: 30,
-                      offset: const Offset(0, 14),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 58,
-                      height: 58,
-                      decoration: const BoxDecoration(
-                        color: Color(0xFFFFF1F2),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.delete_outline,
-                        color: Color(0xFFEF4444),
-                        size: 30,
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    Text(
-                      title,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF111827),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      message,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        height: 1.5,
-                        color: Color(0xFF6B7280),
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: SizedBox(
-                            height: 48,
-                            child: OutlinedButton(
-                              onPressed: () => Navigator.of(context).pop(false),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: const Color(0xFF374151),
-                                side: const BorderSide(color: Color(0xFFE5E7EB)),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
-                              ),
-                              child: const Text(
-                                '취소',
-                                style: TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: SizedBox(
-                            height: 48,
-                            child: ElevatedButton(
-                              onPressed: () => Navigator.of(context).pop(true),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFFEF4444),
-                                foregroundColor: Colors.white,
-                                elevation: 0,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
-                              ),
-                              child: Text(
-                                confirmLabel,
-                                style: const TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
-    },
-    transitionBuilder: (context, animation, secondaryAnimation, child) {
-      final curved = CurvedAnimation(
-        parent: animation,
-        curve: Curves.easeOutCubic,
-      );
-      return FadeTransition(
-        opacity: curved,
-        child: ScaleTransition(
-          scale: Tween<double>(begin: 0.96, end: 1.0).animate(curved),
-          child: child,
-        ),
-      );
-    },
-  );
-
-  return result ?? false;
-}
-
 class _PostDetailPage extends StatefulWidget {
   const _PostDetailPage({required this.postId, required this.onBack, required this.onEdit, required this.onDeleted});
   final int postId;
@@ -160,6 +13,7 @@ class _PostDetailPage extends StatefulWidget {
 
 class _PostDetailPageState extends State<_PostDetailPage> {
   final _inputController = TextEditingController();
+  bool _showDeleteConfirm = false;
   String _sort = '등록순';
 
   @override
@@ -171,6 +25,10 @@ class _PostDetailPageState extends State<_PostDetailPage> {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<CommunityProvider>();
+    final auth = context.watch<AuthProvider>();
+    final profile = context.watch<ProfileProvider>();
+    final currentUserName = profile.summary?.nickname ?? auth.currentNickname ?? '나';
+    final currentAvatarColor = profile.summary?.avatarColor ?? auth.currentAvatarColor;
     final post = provider.postById(widget.postId);
     if (post == null) {
       return Column(
@@ -181,7 +39,6 @@ class _PostDetailPageState extends State<_PostDetailPage> {
       );
     }
     final liked = provider.likedPostIds.contains(post.id) || post.isLiked;
-    final bookmarked = provider.bookmarkedPostIds.contains(post.id) || post.isBookmarked;
     var comments = post.comments;
     if (_sort == '최신순') {
       comments = [...comments]..sort((a, b) => b.id.compareTo(a.id));
@@ -197,16 +54,7 @@ class _PostDetailPageState extends State<_PostDetailPage> {
               trailing: _PostMenu(
                 isMine: post.isMine,
                 onEdit: () => widget.onEdit(post.id),
-                onDelete: () async {
-                  final confirmed = await _showFullScreenDeleteConfirm(
-                    context,
-                    title: '게시글을 삭제할까요?',
-                    message: '삭제된 게시글은 다시 복구할 수 없습니다.',
-                  );
-                  if (!confirmed) return;
-                  await provider.deletePost(post.id);
-                  widget.onDeleted();
-                },
+                onDelete: () => setState(() => _showDeleteConfirm = true),
                 onReport: () => provider.reportPost(post.id),
                 onBlock: () => provider.blockPost(post.id),
               ),
@@ -230,7 +78,7 @@ class _PostDetailPageState extends State<_PostDetailPage> {
                                 children: [
                                   Text(post.username, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: _text)),
                                   const SizedBox(height: 3),
-                                  Text(post.timeAgo, style: const TextStyle(fontSize: 12, color: _gray400)),
+                                  Text(post.relativeTime, style: const TextStyle(fontSize: 12, color: _gray400)),
                                 ],
                               ),
                             ),
@@ -267,11 +115,7 @@ class _PostDetailPageState extends State<_PostDetailPage> {
                             ),
                             const SizedBox(width: 20),
                             _SmallActionIcon(icon: Icons.mode_comment_outlined, label: '${post.comments.length}', color: _gray400, iconSize: 18, fontSize: 13),
-                            const Spacer(),
-                            GestureDetector(
-                              onTap: () => provider.toggleBookmark(post.id),
-                              child: Icon(bookmarked ? Icons.bookmark : Icons.bookmark_border, size: 19, color: bookmarked ? _orange : _gray400),
-                            ),
+
                           ],
                         ),
                       ],
@@ -324,21 +168,38 @@ class _PostDetailPageState extends State<_PostDetailPage> {
             ),
             Container(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-              decoration: const BoxDecoration(color: Colors.white, border: Border(top: BorderSide(color: _gray100))),
+              decoration: const BoxDecoration(color: _gray100, border: Border(top: BorderSide(color: _gray200))),
               child: Row(
                 children: [
-                  const _Avatar(name: '나', color: Color(0xFFFF8C42), size: 30, fontSize: 11),
+                  _Avatar(name: currentUserName, color: Color(currentAvatarColor), size: 30, fontSize: 11),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Container(
                       height: 38,
                       padding: const EdgeInsets.symmetric(horizontal: 14),
+                      alignment: Alignment.center,
                       decoration: BoxDecoration(color: _gray100, borderRadius: BorderRadius.circular(999)),
-                      child: TextField(
-                        controller: _inputController,
-                        decoration: const InputDecoration(border: InputBorder.none, isCollapsed: true, hintText: '따뜻한 댓글을 남겨보세요 :)', hintStyle: TextStyle(fontSize: 13, color: _gray400)),
-                        style: const TextStyle(fontSize: 13, color: _text2),
-                        onChanged: (_) => setState(() {}),
+                      child: Center(
+                        child: TextField(
+                          controller: _inputController,
+                          maxLines: 1,
+                          cursorHeight: 17,
+                          textAlignVertical: TextAlignVertical.center,
+                          strutStyle: const StrutStyle(fontSize: 13, height: 1, forceStrutHeight: true),
+                          decoration: const InputDecoration(
+                            border: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                            isCollapsed: true,
+                            contentPadding: EdgeInsets.zero,
+                            filled: true,
+                            fillColor: _gray100,
+                            hintText: '따뜻한 댓글을 남겨보세요 :)',
+                            hintStyle: TextStyle(fontSize: 13, height: 1, color: _gray400),
+                          ),
+                          style: const TextStyle(fontSize: 13, height: 1, color: _text2),
+                          onChanged: (_) => setState(() {}),
+                        ),
                       ),
                     ),
                   ),
@@ -366,6 +227,18 @@ class _PostDetailPageState extends State<_PostDetailPage> {
             ),
           ],
         ),
+        if (_showDeleteConfirm)
+          _ConfirmDialog(
+            title: '게시글 삭제',
+            message: '삭제된 게시글은 복구할 수 없어요.\n삭제하시겠어요?',
+            confirmLabel: '삭제',
+            onCancel: () => setState(() => _showDeleteConfirm = false),
+            onConfirm: () async {
+              setState(() => _showDeleteConfirm = false);
+              await provider.deletePost(post.id);
+              widget.onDeleted();
+            },
+          ),
       ],
     );
   }
@@ -383,6 +256,7 @@ class _CommentTile extends StatefulWidget {
 class _CommentTileState extends State<_CommentTile> {
   bool _showReply = false;
   bool _editing = false;
+  bool _deleteConfirm = false;
   final _replyController = TextEditingController();
   late final TextEditingController _editController;
 
@@ -430,22 +304,14 @@ class _CommentTileState extends State<_CommentTile> {
                                 children: [
                                   Text(comment.username, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: _text2)),
                                   const SizedBox(height: 2),
-                                  Text(comment.timeAgo, style: const TextStyle(fontSize: 11, color: _gray400)),
+                                  Text(comment.relativeTime, style: const TextStyle(fontSize: 11, color: _gray400)),
                                 ],
                               ),
                             ),
                             _CommentMenu(
                               isMine: comment.isMine,
                               onEdit: () => setState(() => _editing = true),
-                              onDelete: () async {
-                                final confirmed = await _showFullScreenDeleteConfirm(
-                                  context,
-                                  title: '댓글을 삭제할까요?',
-                                  message: '삭제한 댓글은 다시 복구할 수 없습니다.',
-                                );
-                                if (!confirmed) return;
-                                await provider.deleteComment(widget.postId, comment.id);
-                              },
+                              onDelete: () => setState(() => _deleteConfirm = true),
                               onReport: () => provider.reportComment(comment.id),
                               onBlock: () => provider.blockComment(comment.id),
                             ),
@@ -460,7 +326,14 @@ class _CommentTileState extends State<_CommentTile> {
                               controller: _editController,
                               minLines: 2,
                               maxLines: 4,
-                              decoration: const InputDecoration(border: InputBorder.none, isCollapsed: true),
+                              decoration: const InputDecoration(
+                                border: InputBorder.none,
+                                enabledBorder: InputBorder.none,
+                                focusedBorder: InputBorder.none,
+                                isCollapsed: true,
+                                filled: true,
+                                fillColor: _gray100,
+                              ),
                               style: const TextStyle(fontSize: 13, height: 1.65, color: _text2),
                             ),
                           ),
@@ -520,12 +393,29 @@ class _CommentTileState extends State<_CommentTile> {
                                 child: Container(
                                   height: 34,
                                   padding: const EdgeInsets.symmetric(horizontal: 12),
+                                  alignment: Alignment.center,
                                   decoration: BoxDecoration(color: _gray100, borderRadius: BorderRadius.circular(12)),
-                                  child: TextField(
-                                    controller: _replyController,
-                                    decoration: const InputDecoration(border: InputBorder.none, isCollapsed: true, hintText: '답글 입력...', hintStyle: TextStyle(fontSize: 12, color: _gray400)),
-                                    style: const TextStyle(fontSize: 12, color: _text2),
-                                    onChanged: (_) => setState(() {}),
+                                  child: Center(
+                                    child: TextField(
+                                      controller: _replyController,
+                                      maxLines: 1,
+                                      cursorHeight: 16,
+                                      textAlignVertical: TextAlignVertical.center,
+                                      strutStyle: const StrutStyle(fontSize: 12, height: 1, forceStrutHeight: true),
+                                      decoration: const InputDecoration(
+                                        border: InputBorder.none,
+                                        enabledBorder: InputBorder.none,
+                                        focusedBorder: InputBorder.none,
+                                        isCollapsed: true,
+                                        contentPadding: EdgeInsets.zero,
+                                        filled: true,
+                                        fillColor: _gray100,
+                                        hintText: '답글 입력...',
+                                        hintStyle: TextStyle(fontSize: 12, height: 1, color: _gray400),
+                                      ),
+                                      style: const TextStyle(fontSize: 12, height: 1, color: _text2),
+                                      onChanged: (_) => setState(() {}),
+                                    ),
                                   ),
                                 ),
                               ),
@@ -559,6 +449,17 @@ class _CommentTileState extends State<_CommentTile> {
             ],
           ),
         ),
+        if (_deleteConfirm)
+          _ConfirmDialog(
+            title: '댓글 삭제',
+            message: '댓글을 삭제하시겠어요?',
+            confirmLabel: '삭제',
+            onCancel: () => setState(() => _deleteConfirm = false),
+            onConfirm: () async {
+              setState(() => _deleteConfirm = false);
+              await provider.deleteComment(widget.postId, comment.id);
+            },
+          ),
       ],
     );
   }
@@ -576,6 +477,7 @@ class _ReplyTile extends StatefulWidget {
 
 class _ReplyTileState extends State<_ReplyTile> {
   bool _editing = false;
+  bool _deleteConfirm = false;
   late final TextEditingController _editController;
 
   @override
@@ -613,21 +515,13 @@ class _ReplyTileState extends State<_ReplyTile> {
                       children: [
                         Text(reply.username, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: _text2)),
                         const SizedBox(width: 6),
-                        Text(reply.timeAgo, style: const TextStyle(fontSize: 11, color: _gray400)),
+                        Text(reply.relativeTime, style: const TextStyle(fontSize: 11, color: _gray400)),
                         const Spacer(),
                         _CommentMenu(
                           isMine: reply.isMine,
                           small: true,
                           onEdit: () => setState(() => _editing = true),
-                          onDelete: () async {
-                            final confirmed = await _showFullScreenDeleteConfirm(
-                              context,
-                              title: '답글을 삭제할까요?',
-                              message: '삭제한 답글은 다시 복구할 수 없습니다.',
-                            );
-                            if (!confirmed) return;
-                            await provider.deleteReply(widget.postId, widget.commentId, reply.id);
-                          },
+                          onDelete: () => setState(() => _deleteConfirm = true),
                           onReport: () => provider.reportReply(reply.id),
                           onBlock: () => provider.blockReply(reply.id),
                         ),
@@ -638,7 +532,18 @@ class _ReplyTileState extends State<_ReplyTile> {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
                         decoration: BoxDecoration(color: _gray100, borderRadius: BorderRadius.circular(10)),
-                        child: TextField(controller: _editController, decoration: const InputDecoration(border: InputBorder.none, isCollapsed: true), style: const TextStyle(fontSize: 12, color: _text2)),
+                        child: TextField(
+                          controller: _editController,
+                          decoration: const InputDecoration(
+                            border: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                            isCollapsed: true,
+                            filled: true,
+                            fillColor: _gray100,
+                          ),
+                          style: const TextStyle(fontSize: 12, color: _text2),
+                        ),
                       ),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.end,
@@ -670,6 +575,17 @@ class _ReplyTileState extends State<_ReplyTile> {
             ],
           ),
         ),
+        if (_deleteConfirm)
+          _ConfirmDialog(
+            title: '답글 삭제',
+            message: '답글을 삭제하시겠어요?',
+            confirmLabel: '삭제',
+            onCancel: () => setState(() => _deleteConfirm = false),
+            onConfirm: () async {
+              setState(() => _deleteConfirm = false);
+              await provider.deleteReply(widget.postId, widget.commentId, reply.id);
+            },
+          ),
       ],
     );
   }

@@ -21,8 +21,8 @@ const _border = Color(0xFFE8E2D7);
 const _success = Color(0xFF2BAE66);
 const _danger = Color(0xFFD92D20);
 
-int _preheatTarget(Recipe recipe) =>
-    recipe.id == 'egg' ? 200 : recipe.cookerSteps.first.temperature;
+int recipePreheatTarget(Recipe recipe) =>
+    recipe.id == 'egg' ? 50 : recipe.cookerSteps.first.temperature;
 
 Future<void> showRecipeCookerSettings({
   required BuildContext context,
@@ -32,8 +32,8 @@ Future<void> showRecipeCookerSettings({
   required bool preheating,
   CookingControlMode controlMode = CookingControlMode.automatic,
 }) async {
-  var temperature = (preheating ? _preheatTarget(recipe) : step.temperature)
-      .toDouble();
+  var temperature =
+      (preheating ? recipePreheatTarget(recipe) : step.temperature).toDouble();
   var minutes = step.timeMin.toDouble();
   var sending = false;
   var sent = false;

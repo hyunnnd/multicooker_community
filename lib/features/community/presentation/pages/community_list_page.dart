@@ -64,7 +64,6 @@ class _CommunityList extends StatelessWidget {
                           post: post,
                           onTap: () => onPostTap(post.id),
                           onLike: () => provider.togglePostLike(post.id),
-                          onBookmark: () => provider.toggleBookmark(post.id),
                         ),
                         const SizedBox(height: 8),
                       ],
@@ -312,17 +311,15 @@ class _PinnedNotice extends StatelessWidget {
 }
 
 class _PostCard extends StatelessWidget {
-  const _PostCard({required this.post, required this.onTap, required this.onLike, required this.onBookmark});
+  const _PostCard({required this.post, required this.onTap, required this.onLike});
   final CommunityPost post;
   final VoidCallback onTap;
   final VoidCallback onLike;
-  final VoidCallback onBookmark;
 
   @override
   Widget build(BuildContext context) {
     final popular = post.likes >= 100;
     final liked = post.isLiked || context.watch<CommunityProvider>().likedPostIds.contains(post.id);
-    final bookmarked = post.isBookmarked || context.watch<CommunityProvider>().bookmarkedPostIds.contains(post.id);
 
     return Material(
       color: Colors.white,
@@ -341,7 +338,7 @@ class _PostCard extends StatelessWidget {
                   const SizedBox(width: 5),
                   const Text('·', style: TextStyle(fontSize: 11, color: _gray300)),
                   const SizedBox(width: 5),
-                  Text(post.timeAgo, style: const TextStyle(fontSize: 11, color: _gray400)),
+                  Text(post.relativeTime, style: const TextStyle(fontSize: 11, color: _gray400)),
                   const Spacer(),
                   if (popular) ...[
                     _Pill(label: '🔥 인기', bg: const Color(0xFFFEE2E2), fg: _red, fontSize: 10, weight: FontWeight.w800),
@@ -386,11 +383,7 @@ class _PostCard extends StatelessWidget {
                   ),
                   const SizedBox(width: 16),
                   _SmallActionIcon(icon: Icons.mode_comment_outlined, label: '${post.comments.length}', color: _gray400),
-                  const Spacer(),
-                  GestureDetector(
-                    onTap: onBookmark,
-                    child: Icon(bookmarked ? Icons.bookmark : Icons.bookmark_border, size: 18, color: bookmarked ? _orange : _gray400),
-                  ),
+
                 ],
               ),
             ],
