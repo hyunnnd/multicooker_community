@@ -17,13 +17,14 @@ class AiRecipeRecommendationScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final result = context.watch<AiRecommendProvider>().result;
+    final ai = context.watch<AiRecommendProvider>();
+    final result = ai.result;
     return Scaffold(
       appBar: AppBar(
         leading: const AppBackButton(),
         title: const Text('AI 추천 결과'),
       ),
-      bottomNavigationBar: const MainNavigationBar(currentIndex: 0),
+      bottomNavigationBar: const MainNavigationBar(currentIndex: -1),
       body: result == null
           ? Center(
               child: FilledButton.icon(
@@ -60,6 +61,10 @@ class AiRecipeRecommendationScreen extends StatelessWidget {
                       )
                       .toList(growable: false),
                 ),
+                if (ai.lastUploadInfo != null) ...[
+                  const SizedBox(height: 18),
+                  _UploadDebugBox(info: ai.lastUploadInfo!),
+                ],
                 const SizedBox(height: 24),
                 const Text(
                   '추천 레시피',
@@ -74,6 +79,57 @@ class AiRecipeRecommendationScreen extends StatelessWidget {
             ),
     );
   }
+}
+
+class _UploadDebugBox extends StatelessWidget {
+  const _UploadDebugBox({required this.info});
+
+  final Map<String, dynamic> info;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: _blueSoft,
+      borderRadius: BorderRadius.circular(8),
+      border: Border.all(color: _border),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          '디버그: S3 업로드 정보',
+          style: TextStyle(fontWeight: FontWeight.w900, color: _ink),
+        ),
+        const SizedBox(height: 8),
+        _DebugLine(label: 'PUT URL', value: info['upload_url']),
+        _DebugLine(label: 'S3 Key', value: info['s3_key']),
+        _DebugLine(label: 'Image URL', value: info['image_url']),
+      ],
+    ),
+  );
+}
+
+class _DebugLine extends StatelessWidget {
+  const _DebugLine({required this.label, required this.value});
+
+  final String label;
+  final Object? value;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(top: 6),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(color: _sub, fontSize: 12)),
+        SelectableText(
+          value?.toString() ?? '-',
+          style: const TextStyle(color: _ink, fontSize: 12),
+        ),
+      ],
+    ),
+  );
 }
 
 class _RecipeResultCard extends StatelessWidget {

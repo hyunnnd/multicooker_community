@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
 import re
@@ -8,7 +9,7 @@ import secrets
 import sqlite3
 import time
 from collections import deque
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from html import escape
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -359,6 +360,8 @@ class CommunityPost(SQLModel, table=True):
     image_url: Optional[str] = None
     tags: str = ""
     likes: int = 0
+    # Legacy SQLite compatibility only. Bookmark endpoints and response fields are removed,
+    # but older DB files may still have a NOT NULL bookmarks column.
     bookmarks: int = 0
     reports: int = 0
     deleted: bool = False
@@ -402,12 +405,6 @@ class CommunityReply(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 class PostLike(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    post_id: int = Field(index=True)
-    username: str = Field(index=True)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-
-class PostBookmark(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     post_id: int = Field(index=True)
     username: str = Field(index=True)
@@ -458,6 +455,7 @@ class CommunityReport(SQLModel, table=True):
 
 class RecipeReview(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
+    owner_user_id: Optional[int] = Field(default=None, index=True)
     username: str
     avatar_color: int
     recipe_title: str
@@ -468,7 +466,9 @@ class RecipeReview(SQLModel, table=True):
     likes: int = 0
     comment_count: int = 0
     recipe_id: str = "1"
+    deleted: bool = False
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 class ReviewLike(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -482,8 +482,58 @@ class RegisteredDevice(SQLModel, table=True):
     mac_address: str = Field(index=True)
     device_name: str = "Graphene Multi-Cooker"
     serial_number: str = "LOCAL-COOKER-001"
+    alias: str = ""
+    firmware_version: str = ""
+    auto_reconnect: bool = True
     verified: bool = True
+    last_connected_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+class SavedRecipe(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True)
+    # 기존 로컬 레시피는 recipe_id를 사용하고, 회사/앱 레시피는 client_id와
+    # 아래 스냅샷 필드로 저장합니다. 기존 SQLite의 NOT NULL 제약과 호환되도록
+    # recipe_id 기본값은 0으로 유지합니다.
+    recipe_id: int = Field(default=0, index=True)
+    client_id: str = Field(default="", index=True)
+    title: str = ""
+    description: str = ""
+    thumbnail_url: Optional[str] = None
+    author: str = "Graphene Square"
+    is_official: bool = False
+    is_personal: bool = False
+    total_time_min: int = 10
+    max_temperature: int = 180
+    steps_json: str = "[]"
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+class CookingHistory(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True)
+    recipe_id: Optional[int] = Field(default=None, index=True)
+    client_recipe_id: str = Field(default="", index=True)
+    recipe_title: str = "직접 조리"
+    device_name: str = "Graphene Multi-Cooker"
+    status: str = "completed"
+    started_at: datetime = Field(default_factory=datetime.utcnow)
+    finished_at: Optional[datetime] = None
+    total_time_min: int = 0
+    max_temperature: int = 0
+    steps_json: str = "[]"
+    memo: str = ""
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+class UserSettings(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True)
+    cooking_notification: bool = True
+    community_notification: bool = True
+    marketing_notification: bool = False
+    language: str = "ko"
+    tutorial_completed: bool = False
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 class RecipeRecord(SQLModel, table=True):
     __tablename__ = "recipes"
@@ -595,6 +645,66 @@ class UploadCompleteRequest(BaseModel):
     original_filename: Optional[str] = None
     content_type: Optional[str] = None
 
+class UserPatchRequest(BaseModel):
+    nickname: Optional[str] = None
+
+class PasswordPatchRequest(BaseModel):
+    current_password: str = ""
+    new_password: str = ""
+
+class SettingsPatchRequest(BaseModel):
+    cooking_notification: Optional[bool] = None
+    community_notification: Optional[bool] = None
+    marketing_notification: Optional[bool] = None
+    language: Optional[str] = None
+    tutorial_completed: Optional[bool] = None
+
+class SaveRecipeRequest(BaseModel):
+    recipe_id: int
+
+class SaveClientRecipeRequest(BaseModel):
+    client_id: str = ""
+    title: str = ""
+    description: str = ""
+    thumbnail_url: Optional[str] = None
+    author: str = "Graphene Square"
+    is_official: bool = False
+    is_personal: bool = False
+    total_time_min: int = 10
+    max_temperature: int = 180
+    steps: list[dict] = []
+
+class ReviewPatchRequest(BaseModel):
+    rating: Optional[int] = None
+    content: Optional[str] = None
+
+class DeviceRegisterRequest(BaseModel):
+    mac_address: str = ""
+    device_name: str = "Graphene Multi-Cooker"
+    serial_number: str = "LOCAL-COOKER-001"
+    alias: str = ""
+    firmware_version: str = ""
+    auto_reconnect: bool = True
+
+class DevicePatchRequest(BaseModel):
+    alias: Optional[str] = None
+    device_name: Optional[str] = None
+    firmware_version: Optional[str] = None
+    auto_reconnect: Optional[bool] = None
+
+class CookingHistoryCreateRequest(BaseModel):
+    recipe_id: Optional[int] = None
+    client_recipe_id: str = ""
+    recipe_title: str = "직접 조리"
+    device_name: str = "Graphene Multi-Cooker"
+    status: str = "completed"
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+    total_time_min: int = 0
+    max_temperature: int = 0
+    steps: list[dict] = []
+    memo: str = ""
+
 # -----------------------------------------------------------------------------
 # Helpers
 # -----------------------------------------------------------------------------
@@ -705,14 +815,17 @@ def _recipe_payload(session: Session, recipe: RecipeRecord, include_similarity: 
 def _liked_post(session: Session, post_id: int, username: str) -> bool:
     return session.exec(select(PostLike).where(PostLike.post_id == post_id).where(PostLike.username == username)).first() is not None
 
-def _bookmarked_post(session: Session, post_id: int, username: str) -> bool:
-    return session.exec(select(PostBookmark).where(PostBookmark.post_id == post_id).where(PostBookmark.username == username)).first() is not None
-
 def _liked_comment(session: Session, comment_id: int, username: str) -> bool:
     return session.exec(select(CommentLike).where(CommentLike.comment_id == comment_id).where(CommentLike.username == username)).first() is not None
 
 def _liked_reply(session: Session, reply_id: int, username: str) -> bool:
     return session.exec(select(ReplyLike).where(ReplyLike.reply_id == reply_id).where(ReplyLike.username == username)).first() is not None
+
+def _utc_iso(value: datetime) -> str:
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).isoformat().replace('+00:00', 'Z')
+
 
 def _reply_payload(session: Session, reply: CommunityReply, user: User) -> dict:
     viewer_key = _user_key(user)
@@ -722,6 +835,7 @@ def _reply_payload(session: Session, reply: CommunityReply, user: User) -> dict:
         "avatar_color": reply.avatar_color,
         "content": reply.content,
         "time_ago": reply.time_ago,
+        "created_at": _utc_iso(reply.created_at),
         "likes": reply.likes,
         "is_liked": _liked_reply(session, reply.id, viewer_key),
         "is_mine": _is_owner(reply, user),
@@ -737,6 +851,7 @@ def _comment_payload(session: Session, comment: CommunityComment, user: User) ->
         "avatar_color": comment.avatar_color,
         "content": comment.content,
         "time_ago": comment.time_ago,
+        "created_at": _utc_iso(comment.created_at),
         "likes": comment.likes,
         "is_liked": _liked_comment(session, comment.id, viewer_key),
         "is_mine": _is_owner(comment, user),
@@ -753,18 +868,16 @@ def _post_payload(session: Session, post: CommunityPost, user: User) -> dict:
         "username": post.username,
         "avatar_color": post.avatar_color,
         "time_ago": post.time_ago,
+        "created_at": _utc_iso(post.created_at),
         "title": post.title,
         "content": post.content,
         "likes": post.likes,
-        "bookmarks": post.bookmarks,
         "comments": [_comment_payload(session, c, user) for c in comments],
         "image_url": post.image_url,
         "tags": _tags_list(post.tags),
         "activity": _activity(post),
         "is_liked": _liked_post(session, post.id, viewer_key),
-        "is_bookmarked": _bookmarked_post(session, post.id, viewer_key),
         "is_mine": _is_owner(post, user),
-        "created_at": post.created_at.isoformat(),
     }
 
 def _review_payload(session: Session, review: RecipeReview, user: User) -> dict:
@@ -858,6 +971,196 @@ def _record_report(session: Session, *, target_type: str, target_id: int, user: 
     )
     return True
 
+
+
+def _settings_for_user(session: Session, user: User) -> UserSettings:
+    row = session.exec(select(UserSettings).where(UserSettings.user_id == user.id)).first()
+    if row is None:
+        row = UserSettings(user_id=user.id)
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+    return row
+
+def _settings_payload(row: UserSettings) -> dict:
+    return {
+        "cooking_notification": row.cooking_notification,
+        "community_notification": row.community_notification,
+        "marketing_notification": row.marketing_notification,
+        "language": row.language,
+        "tutorial_completed": row.tutorial_completed,
+    }
+
+def _registered_device_payload(row: RegisteredDevice) -> dict:
+    return {
+        "id": row.id,
+        "mac_address": row.mac_address,
+        "device_name": row.device_name,
+        "serial_number": row.serial_number,
+        "alias": row.alias,
+        "display_name": row.alias or row.device_name,
+        "firmware_version": row.firmware_version,
+        "auto_reconnect": row.auto_reconnect,
+        "verified": row.verified,
+        "last_connected_at": row.last_connected_at.isoformat() if row.last_connected_at else None,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
+
+def _recipe_card_payload(session: Session, recipe: RecipeRecord, saved_at: Optional[datetime] = None) -> dict:
+    steps = _recipe_steps(session, recipe.id or 0)
+    total = 0
+    max_temp = 0
+    if steps:
+        offsets = [float(step.time_offset or 0) for step in steps]
+        durations = []
+        for index, offset in enumerate(offsets):
+            if index + 1 < len(offsets):
+                durations.append(max(0, offsets[index + 1] - offset))
+            else:
+                durations.append(300 if offset > 0 else 600)
+        total = max(1, round(sum(durations) / 60))
+        max_temp = max(int(step.temperature or 0) for step in steps)
+    return {
+        "id": str(recipe.id),
+        "title": recipe.title,
+        "description": recipe.description or "",
+        "thumbnail_url": recipe.thumbnail_url,
+        "author": recipe.author,
+        "is_personal": recipe.is_personal,
+        "is_official": recipe.is_official or recipe.is_gsq_suggested,
+        "total_time_min": total or 10,
+        "max_temperature": max_temp or 180,
+        "saved_at": saved_at.isoformat() if saved_at else None,
+        "created_at": recipe.created_at.isoformat() if recipe.created_at else None,
+        "steps": [
+            {"temperature": step.temperature, "time_offset": step.time_offset, "label": step.label}
+            for step in steps
+        ],
+    }
+
+
+def _recipe_for_client_id(session: Session, client_id: str) -> Optional[RecipeRecord]:
+    value = (client_id or '').strip().lower()
+    if not value:
+        return None
+    if value.startswith('r') and value[1:].isdigit():
+        index = int(value[1:]) - 1
+        if 0 <= index < len(DEFAULT_RECIPE_CATALOG):
+            title = DEFAULT_RECIPE_CATALOG[index][0]
+            return session.exec(select(RecipeRecord).where(RecipeRecord.title == title)).first()
+    if value.isdigit():
+        return session.get(RecipeRecord, int(value))
+    return session.exec(select(RecipeRecord).where(RecipeRecord.title == client_id)).first()
+
+
+def _saved_recipe_payload(session: Session, saved: SavedRecipe) -> Optional[dict]:
+    """Return a stable recipe card even when the recipe lives on the company server."""
+    recipe = session.get(RecipeRecord, saved.recipe_id) if saved.recipe_id else None
+    if recipe is not None and not saved.title:
+        payload = _recipe_card_payload(session, recipe, saved.created_at)
+        payload["client_id"] = saved.client_id or payload["id"]
+        return payload
+
+    client_id = (saved.client_id or "").strip()
+    title = (saved.title or "").strip()
+    if not client_id and recipe is not None:
+        client_id = str(recipe.id)
+    if not title and recipe is not None:
+        title = recipe.title
+    if not client_id or not title:
+        return None
+    try:
+        steps = json.loads(saved.steps_json or "[]")
+    except Exception:
+        steps = []
+    return {
+        "id": client_id,
+        "client_id": client_id,
+        "title": title,
+        "description": saved.description or "",
+        "thumbnail_url": saved.thumbnail_url,
+        "author": saved.author or "Graphene Square",
+        "is_personal": bool(saved.is_personal),
+        "is_official": bool(saved.is_official),
+        "total_time_min": max(1, int(saved.total_time_min or 10)),
+        "max_temperature": max(0, int(saved.max_temperature or 180)),
+        "saved_at": saved.created_at.isoformat() if saved.created_at else None,
+        "created_at": None,
+        "steps": steps if isinstance(steps, list) else [],
+    }
+
+
+def _fill_saved_recipe_snapshot(
+    saved: SavedRecipe,
+    *,
+    client_id: str,
+    title: str,
+    description: str = "",
+    thumbnail_url: Optional[str] = None,
+    author: str = "Graphene Square",
+    is_official: bool = False,
+    is_personal: bool = False,
+    total_time_min: int = 10,
+    max_temperature: int = 180,
+    steps: Optional[list[dict]] = None,
+) -> None:
+    saved.client_id = client_id.strip()
+    saved.title = title.strip()
+    saved.description = description or ""
+    saved.thumbnail_url = thumbnail_url
+    saved.author = author.strip() or "Graphene Square"
+    saved.is_official = bool(is_official)
+    saved.is_personal = bool(is_personal)
+    saved.total_time_min = max(1, int(total_time_min or 10))
+    saved.max_temperature = max(0, int(max_temperature or 0))
+    saved.steps_json = json.dumps(steps or [], ensure_ascii=False)
+
+
+def _history_payload(row: CookingHistory) -> dict:
+    try:
+        steps = json.loads(row.steps_json or "[]")
+    except Exception:
+        steps = []
+    return {
+        "id": row.id,
+        "recipe_id": str(row.recipe_id) if row.recipe_id is not None else None,
+        "client_recipe_id": row.client_recipe_id or None,
+        "recipe_title": row.recipe_title,
+        "device_name": row.device_name,
+        "status": row.status,
+        "started_at": row.started_at.isoformat() if row.started_at else None,
+        "finished_at": row.finished_at.isoformat() if row.finished_at else None,
+        "total_time_min": row.total_time_min,
+        "max_temperature": row.max_temperature,
+        "steps": steps,
+        "memo": row.memo,
+    }
+
+def _my_comment_payload(comment: CommunityComment, post: CommunityPost) -> dict:
+    return {
+        "id": comment.id,
+        "type": "comment",
+        "post_id": post.id,
+        "post_title": post.title if not post.deleted else "삭제된 게시글입니다.",
+        "post_category": post.category or "커뮤니티",
+        "content": comment.content,
+        "time_ago": comment.time_ago,
+        "created_at": comment.created_at.isoformat() if comment.created_at else None,
+    }
+
+def _my_reply_payload(reply: CommunityReply, comment: CommunityComment, post: CommunityPost) -> dict:
+    return {
+        "id": reply.id,
+        "type": "reply",
+        "post_id": post.id,
+        "comment_id": comment.id,
+        "post_title": post.title if not post.deleted else "삭제된 게시글입니다.",
+        "post_category": post.category or "커뮤니티",
+        "content": reply.content,
+        "time_ago": reply.time_ago,
+        "created_at": reply.created_at.isoformat() if reply.created_at else None,
+    }
+
 # -----------------------------------------------------------------------------
 # Auth APIs - local DB only
 # -----------------------------------------------------------------------------
@@ -869,7 +1172,7 @@ def local_auth_sync(data: LocalAuthSyncRequest, session: Session = Depends(get_s
 
     The Flutter app calls this after company login so community/recipe/device APIs
     can still use local SQLite ownership, edit/delete permissions, notifications,
-    likes, and bookmarks with a local bearer token.
+    likes with a local bearer token.
 
     Prototype note: this endpoint trusts the app-provided profile. In production,
     the local server should verify the company access token server-to-server before
@@ -1013,6 +1316,474 @@ def me(user: User = Depends(_current_user)):
 
 
 # -----------------------------------------------------------------------------
+# My Page APIs
+# -----------------------------------------------------------------------------
+@app.get("/users/me")
+def get_my_profile(session: Session = Depends(get_session), user: User = Depends(_current_user)):
+    my_name = user.nickname or _display_name_for_email(user.email)
+    recipe_count = len(session.exec(select(RecipeRecord).where(RecipeRecord.owner_user_id == user.id)).all())
+    review_count = len(session.exec(
+        select(RecipeReview).where(RecipeReview.deleted == False).where(
+            or_(RecipeReview.owner_user_id == user.id, RecipeReview.username == my_name)
+        )
+    ).all())
+    comment_count = len(session.exec(select(CommunityComment).where(CommunityComment.deleted == False).where(or_(CommunityComment.owner_user_id == user.id, CommunityComment.username == my_name))).all())
+    reply_count = len(session.exec(select(CommunityReply).where(CommunityReply.deleted == False).where(or_(CommunityReply.owner_user_id == user.id, CommunityReply.username == my_name))).all())
+    history_count = len(session.exec(select(CookingHistory).where(CookingHistory.user_id == user.id)).all())
+    saved_count = len(session.exec(select(SavedRecipe).where(SavedRecipe.user_id == user.id)).all())
+    device_count = len(session.exec(select(RegisteredDevice).where(RegisteredDevice.user_id == user.id)).all())
+    return {
+        "id": user.id,
+        "email": user.email,
+        "nickname": my_name,
+        "avatar_color": _avatar_for_user(user),
+        "recipe_count": recipe_count,
+        "review_count": review_count,
+        "comment_count": comment_count + reply_count,
+        "cooking_history_count": history_count,
+        "saved_recipe_count": saved_count,
+        "device_count": device_count,
+        "settings": _settings_payload(_settings_for_user(session, user)),
+    }
+
+@app.patch("/users/me")
+def patch_my_profile(data: UserPatchRequest, session: Session = Depends(get_session), user: User = Depends(_current_user)):
+    if data.nickname is not None:
+        nickname = data.nickname.strip()
+        if not nickname:
+            raise HTTPException(status_code=400, detail="닉네임을 입력해 주세요.")
+        if len(nickname) > 20:
+            raise HTTPException(status_code=400, detail="닉네임은 20자 이하로 입력해 주세요.")
+        old_name = user.nickname or _display_name_for_email(user.email)
+        user.nickname = nickname
+        session.add(user)
+        # 기존 표시명 기반 데이터도 같이 갱신하여 내 글/후기 목록이 끊기지 않도록 합니다.
+        for post in session.exec(select(CommunityPost).where(CommunityPost.owner_user_id == user.id)).all():
+            post.username = nickname
+            session.add(post)
+        for comment in session.exec(select(CommunityComment).where(CommunityComment.owner_user_id == user.id)).all():
+            comment.username = nickname
+            session.add(comment)
+        for reply in session.exec(select(CommunityReply).where(CommunityReply.owner_user_id == user.id)).all():
+            reply.username = nickname
+            session.add(reply)
+        for review in session.exec(select(RecipeReview).where(or_(RecipeReview.owner_user_id == user.id, RecipeReview.username == old_name))).all():
+            review.owner_user_id = user.id
+            review.username = nickname
+            session.add(review)
+    session.commit()
+    session.refresh(user)
+    return get_my_profile(session=session, user=user)
+
+@app.patch("/users/me/password")
+def patch_my_password(data: PasswordPatchRequest, session: Session = Depends(get_session), user: User = Depends(_current_user)):
+    if user.password_hash != "EXTERNAL_COMPANY_AUTH" and user.password_hash != _hash(data.current_password):
+        raise HTTPException(status_code=400, detail="현재 비밀번호가 일치하지 않습니다.")
+    if len(data.new_password) < 4:
+        raise HTTPException(status_code=400, detail="새 비밀번호는 4자 이상이어야 합니다.")
+    user.password_hash = _hash(data.new_password)
+    session.add(user)
+    session.commit()
+    return {"message": "password updated"}
+
+@app.delete("/users/me")
+def delete_my_account(session: Session = Depends(get_session), user: User = Depends(_current_user)):
+    for token in session.exec(select(SessionToken).where(SessionToken.user_id == user.id)).all():
+        token.revoked = True
+        session.add(token)
+    user.email = f"deleted_user_{user.id}@deleted.local"
+    user.nickname = "탈퇴한 사용자"
+    user.password_hash = "DELETED"
+    session.add(user)
+    session.commit()
+    return {"message": "account deleted"}
+
+@app.get("/users/me/settings")
+def get_my_settings(session: Session = Depends(get_session), user: User = Depends(_current_user)):
+    return {"settings": _settings_payload(_settings_for_user(session, user))}
+
+@app.patch("/users/me/settings")
+def patch_my_settings(data: SettingsPatchRequest, session: Session = Depends(get_session), user: User = Depends(_current_user)):
+    settings = _settings_for_user(session, user)
+    if data.cooking_notification is not None:
+        settings.cooking_notification = data.cooking_notification
+    if data.community_notification is not None:
+        settings.community_notification = data.community_notification
+    if data.marketing_notification is not None:
+        settings.marketing_notification = data.marketing_notification
+    if data.language is not None:
+        language = data.language.strip().lower()
+        if language not in {"ko", "en"}:
+            raise HTTPException(status_code=400, detail="지원하지 않는 언어입니다.")
+        settings.language = language
+    if data.tutorial_completed is not None:
+        settings.tutorial_completed = data.tutorial_completed
+    settings.updated_at = datetime.utcnow()
+    session.add(settings)
+    session.commit()
+    session.refresh(settings)
+    return {"settings": _settings_payload(settings)}
+
+@app.get("/users/me/recipes")
+def get_my_recipes(session: Session = Depends(get_session), user: User = Depends(_current_user)):
+    rows = session.exec(select(RecipeRecord).where(RecipeRecord.owner_user_id == user.id)).all()
+    rows = sorted(rows, key=lambda r: r.id or 0, reverse=True)
+    return {"recipes": [_recipe_card_payload(session, row) for row in rows]}
+
+@app.delete("/users/me/recipes/{recipe_id}")
+def delete_my_recipe(recipe_id: int, session: Session = Depends(get_session), user: User = Depends(_current_user)):
+    row = session.get(RecipeRecord, recipe_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+    if row.owner_user_id != user.id:
+        raise HTTPException(status_code=403, detail="내 레시피만 삭제할 수 있습니다.")
+    for step in session.exec(select(RecipeStepRecord).where(RecipeStepRecord.recipe_id == recipe_id)).all():
+        session.delete(step)
+    for saved in session.exec(select(SavedRecipe).where(SavedRecipe.recipe_id == recipe_id)).all():
+        session.delete(saved)
+    session.delete(row)
+    session.commit()
+    return {"message": "recipe deleted", "recipe_id": recipe_id}
+
+@app.get("/users/me/saved-recipes")
+def get_my_saved_recipes(session: Session = Depends(get_session), user: User = Depends(_current_user)):
+    rows = session.exec(select(SavedRecipe).where(SavedRecipe.user_id == user.id)).all()
+    rows = sorted(rows, key=lambda r: r.id or 0, reverse=True)
+    recipes = []
+    for saved in rows:
+        payload = _saved_recipe_payload(session, saved)
+        if payload is not None:
+            recipes.append(payload)
+    return {"recipes": recipes}
+
+@app.post("/users/me/saved-recipes")
+def save_my_recipe(data: SaveRecipeRequest, session: Session = Depends(get_session), user: User = Depends(_current_user)):
+    recipe = session.get(RecipeRecord, data.recipe_id)
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+    exists = session.exec(
+        select(SavedRecipe)
+        .where(SavedRecipe.user_id == user.id)
+        .where(SavedRecipe.recipe_id == data.recipe_id)
+    ).first()
+    if not exists:
+        exists = SavedRecipe(user_id=user.id, recipe_id=data.recipe_id)
+    payload = _recipe_card_payload(session, recipe)
+    _fill_saved_recipe_snapshot(
+        exists,
+        client_id=str(payload["id"]),
+        title=payload["title"],
+        description=payload["description"],
+        thumbnail_url=payload["thumbnail_url"],
+        author=payload["author"],
+        is_official=payload["is_official"],
+        is_personal=payload["is_personal"],
+        total_time_min=payload["total_time_min"],
+        max_temperature=payload["max_temperature"],
+        steps=payload["steps"],
+    )
+    session.add(exists)
+    session.commit()
+    session.refresh(exists)
+    return {"message": "saved", "recipe": _saved_recipe_payload(session, exists)}
+
+@app.post("/users/me/saved-recipes/by-client-id")
+def save_my_recipe_by_client_id(data: SaveClientRecipeRequest, session: Session = Depends(get_session), user: User = Depends(_current_user)):
+    client_id = data.client_id.strip()
+    if not client_id:
+        raise HTTPException(status_code=400, detail="client_id is required")
+
+    exists = session.exec(
+        select(SavedRecipe)
+        .where(SavedRecipe.user_id == user.id)
+        .where(SavedRecipe.client_id == client_id)
+    ).first()
+    recipe = _recipe_for_client_id(session, client_id)
+    if exists is None and recipe is not None and recipe.id is not None:
+        # 이전 버전에서 recipe_id만 저장한 행을 동일한 행으로 승격합니다.
+        exists = session.exec(
+            select(SavedRecipe)
+            .where(SavedRecipe.user_id == user.id)
+            .where(SavedRecipe.recipe_id == recipe.id)
+        ).first()
+    if exists is None:
+        exists = SavedRecipe(
+            user_id=user.id,
+            recipe_id=recipe.id if recipe is not None and recipe.id is not None else 0,
+        )
+
+    if recipe is not None and not data.title.strip():
+        local_payload = _recipe_card_payload(session, recipe)
+        title = local_payload["title"]
+        description = local_payload["description"]
+        thumbnail_url = local_payload["thumbnail_url"]
+        author = local_payload["author"]
+        is_official = local_payload["is_official"]
+        is_personal = local_payload["is_personal"]
+        total_time_min = local_payload["total_time_min"]
+        max_temperature = local_payload["max_temperature"]
+        steps = local_payload["steps"]
+    else:
+        title = data.title.strip() or client_id
+        description = data.description
+        thumbnail_url = data.thumbnail_url
+        author = data.author
+        is_official = data.is_official
+        is_personal = data.is_personal
+        total_time_min = data.total_time_min
+        max_temperature = data.max_temperature
+        steps = data.steps
+
+    _fill_saved_recipe_snapshot(
+        exists,
+        client_id=client_id,
+        title=title,
+        description=description,
+        thumbnail_url=thumbnail_url,
+        author=author,
+        is_official=is_official,
+        is_personal=is_personal,
+        total_time_min=total_time_min,
+        max_temperature=max_temperature,
+        steps=steps,
+    )
+    session.add(exists)
+    session.commit()
+    session.refresh(exists)
+    return {"message": "saved", "recipe": _saved_recipe_payload(session, exists)}
+
+@app.delete("/users/me/saved-recipes/by-client-id/{client_id}")
+def unsave_my_recipe_by_client_id(client_id: str, session: Session = Depends(get_session), user: User = Depends(_current_user)):
+    rows = session.exec(
+        select(SavedRecipe)
+        .where(SavedRecipe.user_id == user.id)
+        .where(SavedRecipe.client_id == client_id)
+    ).all()
+    if not rows:
+        recipe = _recipe_for_client_id(session, client_id)
+        if recipe is not None and recipe.id is not None:
+            rows = session.exec(
+                select(SavedRecipe)
+                .where(SavedRecipe.user_id == user.id)
+                .where(SavedRecipe.recipe_id == recipe.id)
+            ).all()
+    for row in rows:
+        session.delete(row)
+    session.commit()
+    return {"message": "unsaved", "recipe_id": client_id}
+
+@app.delete("/users/me/saved-recipes/{recipe_id}")
+def unsave_my_recipe(recipe_id: int, session: Session = Depends(get_session), user: User = Depends(_current_user)):
+    rows = session.exec(
+        select(SavedRecipe)
+        .where(SavedRecipe.user_id == user.id)
+        .where(SavedRecipe.recipe_id == recipe_id)
+    ).all()
+    for row in rows:
+        session.delete(row)
+    session.commit()
+    return {"message": "unsaved", "recipe_id": recipe_id}
+
+@app.get("/users/me/reviews")
+def get_my_reviews(session: Session = Depends(get_session), user: User = Depends(_current_user)):
+    my_name = user.nickname or _display_name_for_email(user.email)
+    rows = session.exec(select(RecipeReview).where(RecipeReview.deleted == False).where(or_(RecipeReview.owner_user_id == user.id, RecipeReview.username == my_name))).all()
+    rows = sorted(rows, key=lambda r: r.id or 0, reverse=True)
+    return {"reviews": [_review_payload(session, row, user) for row in rows]}
+
+@app.patch("/reviews/{review_id}")
+def patch_review(review_id: int, data: ReviewPatchRequest, session: Session = Depends(get_session), user: User = Depends(_current_user)):
+    review = session.get(RecipeReview, review_id)
+    if not review or review.deleted:
+        raise HTTPException(status_code=404, detail="Review not found")
+    if not _is_owner(review, user):
+        raise HTTPException(status_code=403, detail="내 후기만 수정할 수 있습니다.")
+    if data.rating is not None:
+        review.rating = max(1, min(5, int(data.rating)))
+    if data.content is not None:
+        content = data.content.strip()
+        if not content:
+            raise HTTPException(status_code=400, detail="후기 내용을 입력해 주세요.")
+        review.content = content
+    review.updated_at = datetime.utcnow()
+    session.add(review)
+    session.commit()
+    session.refresh(review)
+    return {"review": _review_payload(session, review, user)}
+
+@app.delete("/reviews/{review_id}")
+def delete_review(review_id: int, session: Session = Depends(get_session), user: User = Depends(_current_user)):
+    review = session.get(RecipeReview, review_id)
+    if not review or review.deleted:
+        raise HTTPException(status_code=404, detail="Review not found")
+    if not _is_owner(review, user):
+        raise HTTPException(status_code=403, detail="내 후기만 삭제할 수 있습니다.")
+    review.deleted = True
+    session.add(review)
+    session.commit()
+    return {"message": "review deleted", "review_id": review_id}
+
+@app.patch("/community/reviews/{review_id}")
+def patch_community_review(review_id: int, data: ReviewPatchRequest, session: Session = Depends(get_session), user: User = Depends(_current_user)):
+    return patch_review(review_id=review_id, data=data, session=session, user=user)
+
+@app.delete("/community/reviews/{review_id}")
+def delete_community_review(review_id: int, session: Session = Depends(get_session), user: User = Depends(_current_user)):
+    return delete_review(review_id=review_id, session=session, user=user)
+
+@app.get("/users/me/comments")
+def get_my_comments(session: Session = Depends(get_session), user: User = Depends(_current_user)):
+    items = []
+    my_name = user.nickname or _display_name_for_email(user.email)
+    comments = session.exec(select(CommunityComment).where(CommunityComment.deleted == False).where(or_(CommunityComment.owner_user_id == user.id, CommunityComment.username == my_name))).all()
+    for comment in comments:
+        post = session.get(CommunityPost, comment.post_id)
+        if post:
+            items.append(_my_comment_payload(comment, post))
+    replies = session.exec(select(CommunityReply).where(CommunityReply.deleted == False).where(or_(CommunityReply.owner_user_id == user.id, CommunityReply.username == my_name))).all()
+    for reply in replies:
+        comment = session.get(CommunityComment, reply.comment_id)
+        if comment:
+            post = session.get(CommunityPost, comment.post_id)
+            if post:
+                items.append(_my_reply_payload(reply, comment, post))
+    items.sort(key=lambda item: item.get("created_at") or "", reverse=True)
+    return {"comments": items}
+
+@app.get("/users/me/cooking-histories")
+def get_my_cooking_histories(session: Session = Depends(get_session), user: User = Depends(_current_user)):
+    rows = session.exec(select(CookingHistory).where(CookingHistory.user_id == user.id)).all()
+    rows = sorted(rows, key=lambda h: h.started_at or h.created_at, reverse=True)
+    return {"histories": [_history_payload(row) for row in rows]}
+
+@app.post("/users/me/cooking-histories")
+def create_my_cooking_history(data: CookingHistoryCreateRequest, session: Session = Depends(get_session), user: User = Depends(_current_user)):
+    recipe_title = data.recipe_title.strip() or "직접 조리"
+    if data.recipe_id:
+        recipe = session.get(RecipeRecord, data.recipe_id)
+        if recipe:
+            recipe_title = recipe.title
+    steps_json = json.dumps(data.steps, ensure_ascii=False)
+    row = CookingHistory(
+        user_id=user.id,
+        recipe_id=data.recipe_id,
+        client_recipe_id=data.client_recipe_id.strip(),
+        recipe_title=recipe_title,
+        device_name=data.device_name.strip() or "Graphene Multi-Cooker",
+        status=data.status.strip() or "completed",
+        started_at=data.started_at or datetime.utcnow(),
+        finished_at=data.finished_at,
+        total_time_min=max(0, data.total_time_min),
+        max_temperature=max(0, data.max_temperature),
+        steps_json=steps_json,
+        memo=data.memo.strip(),
+    )
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    return {"history": _history_payload(row)}
+
+@app.get("/users/me/cooking-histories/{history_id}")
+def get_my_cooking_history(history_id: int, session: Session = Depends(get_session), user: User = Depends(_current_user)):
+    row = session.get(CookingHistory, history_id)
+    if not row or row.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Cooking history not found")
+    return {"history": _history_payload(row)}
+
+@app.delete("/users/me/cooking-histories/{history_id}")
+def delete_my_cooking_history(history_id: int, session: Session = Depends(get_session), user: User = Depends(_current_user)):
+    row = session.get(CookingHistory, history_id)
+    if not row or row.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Cooking history not found")
+    session.delete(row)
+    session.commit()
+    return {"message": "history deleted", "history_id": history_id}
+
+@app.post("/users/me/cooking-histories/{history_id}/save-as-recipe")
+def save_history_as_recipe(history_id: int, session: Session = Depends(get_session), user: User = Depends(_current_user)):
+    history = session.get(CookingHistory, history_id)
+    if not history or history.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Cooking history not found")
+    recipe = RecipeRecord(
+        owner_user_id=user.id,
+        title=f"{history.recipe_title} 복사본",
+        description="조리 이력에서 저장한 레시피입니다.",
+        author=user.nickname or _display_name_for_email(user.email),
+        is_personal=True,
+    )
+    session.add(recipe)
+    session.commit()
+    session.refresh(recipe)
+    try:
+        steps = json.loads(history.steps_json or "[]")
+    except Exception:
+        steps = []
+    if not steps:
+        steps = [{"temperature": history.max_temperature or 180, "time_offset": 0}]
+    for index, step in enumerate(steps, start=1):
+        session.add(RecipeStepRecord(
+            recipe_id=recipe.id,
+            temperature=float(step.get("temperature") or history.max_temperature or 180),
+            time_offset=float(step.get("time_offset") or step.get("timeOffset") or 0),
+            label=str(step.get("label") or f"Step {index}"),
+            sort_order=index,
+        ))
+    session.commit()
+    return {"recipe": _recipe_card_payload(session, recipe)}
+
+@app.get("/users/me/devices")
+def get_my_devices(session: Session = Depends(get_session), user: User = Depends(_current_user)):
+    rows = session.exec(select(RegisteredDevice).where(RegisteredDevice.user_id == user.id)).all()
+    rows = sorted(rows, key=lambda d: d.last_connected_at or d.created_at, reverse=True)
+    return {"devices": [_registered_device_payload(row) for row in rows]}
+
+@app.post("/users/me/devices")
+def register_my_device(data: DeviceRegisterRequest, session: Session = Depends(get_session), user: User = Depends(_current_user)):
+    mac = data.mac_address.strip() or data.device_name.strip() or "LOCAL-MAC-0000"
+    row = session.exec(select(RegisteredDevice).where(RegisteredDevice.user_id == user.id).where(RegisteredDevice.mac_address == mac)).first()
+    if not row:
+        row = RegisteredDevice(user_id=user.id, mac_address=mac)
+    row.device_name = data.device_name.strip() or row.device_name
+    row.serial_number = data.serial_number.strip() or row.serial_number
+    row.alias = data.alias.strip()
+    row.firmware_version = data.firmware_version.strip()
+    row.auto_reconnect = data.auto_reconnect
+    row.last_connected_at = datetime.utcnow()
+    row.updated_at = datetime.utcnow()
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    return {"device": _registered_device_payload(row)}
+
+@app.patch("/users/me/devices/{device_id}")
+def patch_my_device(device_id: int, data: DevicePatchRequest, session: Session = Depends(get_session), user: User = Depends(_current_user)):
+    row = session.get(RegisteredDevice, device_id)
+    if not row or row.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Device not found")
+    if data.alias is not None:
+        row.alias = data.alias.strip()
+    if data.device_name is not None:
+        row.device_name = data.device_name.strip() or row.device_name
+    if data.firmware_version is not None:
+        row.firmware_version = data.firmware_version.strip()
+    if data.auto_reconnect is not None:
+        row.auto_reconnect = data.auto_reconnect
+    row.updated_at = datetime.utcnow()
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    return {"device": _registered_device_payload(row)}
+
+@app.delete("/users/me/devices/{device_id}")
+def delete_my_device(device_id: int, session: Session = Depends(get_session), user: User = Depends(_current_user)):
+    row = session.get(RegisteredDevice, device_id)
+    if not row or row.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Device not found")
+    session.delete(row)
+    session.commit()
+    return {"message": "device deleted", "device_id": device_id}
+
+# -----------------------------------------------------------------------------
 # Company OpenAPI compatible local APIs
 # -----------------------------------------------------------------------------
 @app.get("/auth/google/login")
@@ -1041,9 +1812,11 @@ def verify_device(data: DeviceVerifyRequest, session: Session = Depends(get_sess
     ).first()
     if not row:
         row = RegisteredDevice(user_id=user.id, mac_address=mac)
-        session.add(row)
-        session.commit()
-        session.refresh(row)
+    row.last_connected_at = datetime.utcnow()
+    row.updated_at = datetime.utcnow()
+    session.add(row)
+    session.commit()
+    session.refresh(row)
     return {"verified": row.verified, "device_name": row.device_name, "serial_number": row.serial_number}
 
 @app.post("/device/unregister")
@@ -1067,7 +1840,7 @@ def upload_recipe(data: UploadRecipeRequest, session: Session = Depends(get_sess
         owner_user_id=user.id,
         title=data.title.strip(),
         description=data.description,
-        author=user.nickname or DEFAULT_USER,
+        author=user.nickname or _display_name_for_email(user.email),
         is_personal=True,
         is_gsq_suggested=False,
         is_official=False,
@@ -1088,7 +1861,7 @@ def upload_recipe(data: UploadRecipeRequest, session: Session = Depends(get_sess
             )
         )
     session.commit()
-    return {"message": "uploaded", "recipe": _recipe_payload(session, recipe)}
+    return {"message": "uploaded", "recipe": _recipe_card_payload(session, recipe)}
 
 @app.get("/recipe/personal_recipes/{amount}")
 def get_personal_recipes(amount: int, session: Session = Depends(get_session), user: User = Depends(_current_user)):
@@ -1342,32 +2115,6 @@ def unlike_post(post_id: int, session: Session = Depends(get_session), user: Use
         session.refresh(post)
     return {"is_liked": False, "like_count": post.likes, "post": _post_payload(session, post, user)}
 
-@app.post("/community/posts/{post_id}/bookmark")
-def bookmark_post(post_id: int, session: Session = Depends(get_session), user: User = Depends(_current_user)):
-    post = _first_or_404(session, CommunityPost, post_id, "Post not found")
-    viewer_key = _user_key(user)
-    exists = session.exec(select(PostBookmark).where(PostBookmark.post_id == post_id).where(PostBookmark.username == viewer_key)).first()
-    if not exists:
-        session.add(PostBookmark(post_id=post_id, username=viewer_key))
-        post.bookmarks += 1
-        session.add(post)
-        session.commit()
-        session.refresh(post)
-    return {"is_bookmarked": True, "bookmark_count": post.bookmarks, "post": _post_payload(session, post, user)}
-
-@app.delete("/community/posts/{post_id}/bookmark")
-def unbookmark_post(post_id: int, session: Session = Depends(get_session), user: User = Depends(_current_user)):
-    post = _first_or_404(session, CommunityPost, post_id, "Post not found")
-    viewer_key = _user_key(user)
-    exists = session.exec(select(PostBookmark).where(PostBookmark.post_id == post_id).where(PostBookmark.username == viewer_key)).first()
-    if exists:
-        session.delete(exists)
-        post.bookmarks = max(0, post.bookmarks - 1)
-        session.add(post)
-        session.commit()
-        session.refresh(post)
-    return {"is_bookmarked": False, "bookmark_count": post.bookmarks, "post": _post_payload(session, post, user)}
-
 @app.post("/community/posts/{post_id}/report")
 def report_post(post_id: int, data: ReportIn | None = None, session: Session = Depends(get_session), user: User = Depends(_current_user)):
     post = _first_or_404(session, CommunityPost, post_id, "Post not found")
@@ -1575,6 +2322,22 @@ def get_notice(notice_id: int, session: Session = Depends(get_session)):
         raise HTTPException(status_code=404, detail="Notice not found")
     return {"notice": notice.model_dump()}
 
+def _notification_payload(notification: CommunityNotification) -> dict:
+    return {
+        "id": notification.id,
+        "target_user_id": notification.target_user_id,
+        "type": notification.type,
+        "from_user": notification.from_user,
+        "avatar_color": notification.avatar_color,
+        "post_title": notification.post_title,
+        "post_id": notification.post_id,
+        "time_ago": notification.time_ago,
+        "created_at": _utc_iso(notification.created_at),
+        "read": notification.read,
+        "username": notification.username,
+    }
+
+
 @app.get("/community/notifications")
 def get_notifications(session: Session = Depends(get_session), user: User = Depends(_current_user)):
     rows = session.exec(
@@ -1586,7 +2349,7 @@ def get_notifications(session: Session = Depends(get_session), user: User = Depe
         )
     ).all()
     rows = sorted(rows, key=lambda n: n.id or 0, reverse=True)
-    return {"notifications": [n.model_dump() for n in rows]}
+    return {"notifications": [_notification_payload(n) for n in rows]}
 
 @app.patch("/community/notifications/read_all")
 def read_all_notifications(session: Session = Depends(get_session), user: User = Depends(_current_user)):
@@ -1634,6 +2397,7 @@ def create_review(payload: dict, session: Session = Depends(get_session), user: 
     recipe_image = str(payload.get("recipe_image") or "").strip() or IMG_STEAK
     username = user.nickname or _display_name_for_email(user.email)
     review = RecipeReview(
+        owner_user_id=user.id,
         username=username,
         avatar_color=_avatar_for_user(user),
         recipe_title=recipe_title,
@@ -1652,14 +2416,14 @@ def create_review(payload: dict, session: Session = Depends(get_session), user: 
 
 @app.get("/community/reviews")
 def get_reviews(session: Session = Depends(get_session), user: User = Depends(_current_user)):
-    reviews = session.exec(select(RecipeReview)).all()
+    reviews = session.exec(select(RecipeReview).where(RecipeReview.deleted == False)).all()
     reviews = sorted(reviews, key=lambda r: r.id or 0, reverse=True)
     return {"reviews": [_review_payload(session, r, user) for r in reviews]}
 
 @app.post("/community/reviews/{review_id}/like")
 def like_review(review_id: int, session: Session = Depends(get_session), user: User = Depends(_current_user)):
     review = session.get(RecipeReview, review_id)
-    if not review:
+    if not review or getattr(review, "deleted", False):
         raise HTTPException(status_code=404, detail="Review not found")
     viewer_key = _user_key(user)
     exists = session.exec(select(ReviewLike).where(ReviewLike.review_id == review_id).where(ReviewLike.username == viewer_key)).first()
@@ -1673,7 +2437,7 @@ def like_review(review_id: int, session: Session = Depends(get_session), user: U
 @app.delete("/community/reviews/{review_id}/like")
 def unlike_review(review_id: int, session: Session = Depends(get_session), user: User = Depends(_current_user)):
     review = session.get(RecipeReview, review_id)
-    if not review:
+    if not review or getattr(review, "deleted", False):
         raise HTTPException(status_code=404, detail="Review not found")
     viewer_key = _user_key(user)
     exists = session.exec(select(ReviewLike).where(ReviewLike.review_id == review_id).where(ReviewLike.username == viewer_key)).first()
@@ -1845,13 +2609,38 @@ def _repair_default_images(session: Session):
 # -----------------------------------------------------------------------------
 _seed_order_counter = 0
 
+
+def _time_from_relative_label(label: str, *, now: Optional[datetime] = None) -> Optional[datetime]:
+    value = (label or "").strip()
+    current = now or datetime.utcnow()
+    if not value:
+        return None
+    if value == "방금 전":
+        return current
+    if value == "어제":
+        return current - timedelta(days=1)
+
+    match = re.fullmatch(r"(\d+)분 전", value)
+    if match:
+        return current - timedelta(minutes=int(match.group(1)))
+    match = re.fullmatch(r"(\d+)시간 전", value)
+    if match:
+        return current - timedelta(hours=int(match.group(1)))
+    match = re.fullmatch(r"(\d+)일 전", value)
+    if match:
+        return current - timedelta(days=int(match.group(1)))
+    return None
+
+
 def _post(session: Session, **kwargs) -> CommunityPost:
     global _seed_order_counter
     if "created_at" not in kwargs:
-        seed_time = datetime.utcnow() - timedelta(minutes=_seed_order_counter)
+        seed_time = _time_from_relative_label(str(kwargs.get("time_ago", "")))
+        if seed_time is None:
+            seed_time = datetime.utcnow() - timedelta(minutes=_seed_order_counter)
+            _seed_order_counter += 1
         kwargs["created_at"] = seed_time
         kwargs["updated_at"] = seed_time
-        _seed_order_counter += 1
     post = CommunityPost(**kwargs)
     session.add(post)
     session.commit()
@@ -1859,6 +2648,10 @@ def _post(session: Session, **kwargs) -> CommunityPost:
     return post
 
 def _comment(session: Session, post_id: int, **kwargs) -> CommunityComment:
+    if "created_at" not in kwargs:
+        seed_time = _time_from_relative_label(str(kwargs.get("time_ago", ""))) or datetime.utcnow()
+        kwargs["created_at"] = seed_time
+        kwargs["updated_at"] = seed_time
     c = CommunityComment(post_id=post_id, **kwargs)
     session.add(c)
     session.commit()
@@ -1866,6 +2659,10 @@ def _comment(session: Session, post_id: int, **kwargs) -> CommunityComment:
     return c
 
 def _reply(session: Session, comment_id: int, **kwargs) -> CommunityReply:
+    if "created_at" not in kwargs:
+        seed_time = _time_from_relative_label(str(kwargs.get("time_ago", ""))) or datetime.utcnow()
+        kwargs["created_at"] = seed_time
+        kwargs["updated_at"] = seed_time
     r = CommunityReply(comment_id=comment_id, **kwargs)
     session.add(r)
     session.commit()
@@ -1920,9 +2717,9 @@ def _seed_if_empty():
         ]
         session.add_all(notices)
         session.add_all([
-            CommunityNotification(type="comment", from_user="홈쿡러버", avatar_color=0xFF2196F3, post_title="감자 수육할 때 이 팁 쓰면 완전 부드러워요!", post_id=p2.id, time_ago="20분 전", read=False),
-            CommunityNotification(type="comment", from_user="쿠커초보", avatar_color=0xFF4A90D9, post_title="감자 수육할 때 이 팁 쓰면 완전 부드러워요!", post_id=p2.id, time_ago="15분 전", read=False),
-            CommunityNotification(type="reply", from_user="홈쿡러버", avatar_color=0xFF2196F3, post_title="감자수육 삼겹살 구이 레시피 진짜 대박이에요", post_id=p3.id, time_ago="45분 전", read=True),
+            CommunityNotification(type="comment", from_user="홈쿡러버", avatar_color=0xFF2196F3, post_title="감자 수육할 때 이 팁 쓰면 완전 부드러워요!", post_id=p2.id, time_ago="20분 전", created_at=_time_from_relative_label("20분 전") or datetime.utcnow(), read=False),
+            CommunityNotification(type="comment", from_user="쿠커초보", avatar_color=0xFF4A90D9, post_title="감자 수육할 때 이 팁 쓰면 완전 부드러워요!", post_id=p2.id, time_ago="15분 전", created_at=_time_from_relative_label("15분 전") or datetime.utcnow(), read=False),
+            CommunityNotification(type="reply", from_user="홈쿡러버", avatar_color=0xFF2196F3, post_title="감자수육 삼겹살 구이 레시피 진짜 대박이에요", post_id=p3.id, time_ago="45분 전", created_at=_time_from_relative_label("45분 전") or datetime.utcnow(), read=True),
         ])
         session.add_all([
             RecipeReview(username="맛집탐방", avatar_color=0xFF9C27B0, recipe_title="간장찜닭", recipe_image=IMG_CHICKEN, rating=5, content="양념이 잘 배고 닭고기가 부드러웠어요. 자동 조리라 편했습니다.", date="2026.07.02", likes=12, comment_count=3, recipe_id="1"),
@@ -2015,7 +2812,6 @@ def _sync_design_notices():
 
 ■ 추가된 기능
 • 댓글 답글 기능
-• 게시글 북마크 기능
 • 인기 게시글 자동 분류 (좋아요 100개 이상)
 • 후기 탭에서 레시피 연동 후기 확인
 
@@ -2024,6 +2820,28 @@ def _sync_design_notices():
             ),
         ])
         session.commit()
+
+def _repair_legacy_community_times():
+    """Convert old fixed Korean time labels into timestamps once, then clear the labels."""
+    with Session(engine) as session:
+        changed = False
+        for model in (CommunityPost, CommunityComment, CommunityReply, CommunityNotification):
+            for row in session.exec(select(model)).all():
+                label = (getattr(row, "time_ago", "") or "").strip()
+                if not label or label == "방금 전":
+                    continue
+                parsed = _time_from_relative_label(label)
+                if parsed is None:
+                    continue
+                row.created_at = parsed
+                if hasattr(row, "updated_at"):
+                    row.updated_at = parsed
+                row.time_ago = ""
+                session.add(row)
+                changed = True
+        if changed:
+            session.commit()
+
 
 def _ensure_schema_columns():
     """Upgrade old local SQLite DB files created before per-account ownership was added."""
@@ -2034,10 +2852,37 @@ def _ensure_schema_columns():
     try:
         cursor = conn.cursor()
         upgrades = {
-            "communitypost": [("owner_user_id", "INTEGER")],
+            "communitypost": [("owner_user_id", "INTEGER"), ("bookmarks", "INTEGER DEFAULT 0")],
             "communitycomment": [("owner_user_id", "INTEGER")],
             "communityreply": [("owner_user_id", "INTEGER")],
             "communitynotification": [("target_user_id", "INTEGER")],
+            "recipereview": [
+                ("owner_user_id", "INTEGER"),
+                ("deleted", "BOOLEAN DEFAULT 0"),
+                ("updated_at", "TIMESTAMP"),
+            ],
+            "registereddevice": [
+                ("alias", "TEXT DEFAULT ''"),
+                ("firmware_version", "TEXT DEFAULT ''"),
+                ("auto_reconnect", "BOOLEAN DEFAULT 1"),
+                ("last_connected_at", "TIMESTAMP"),
+                ("updated_at", "TIMESTAMP"),
+            ],
+            "savedrecipe": [
+                ("client_id", "TEXT DEFAULT ''"),
+                ("title", "TEXT DEFAULT ''"),
+                ("description", "TEXT DEFAULT ''"),
+                ("thumbnail_url", "TEXT"),
+                ("author", "TEXT DEFAULT 'Graphene Square'"),
+                ("is_official", "BOOLEAN DEFAULT 0"),
+                ("is_personal", "BOOLEAN DEFAULT 0"),
+                ("total_time_min", "INTEGER DEFAULT 10"),
+                ("max_temperature", "INTEGER DEFAULT 180"),
+                ("steps_json", "TEXT DEFAULT '[]'"),
+            ],
+            "cookinghistory": [
+                ("client_recipe_id", "TEXT DEFAULT ''"),
+            ],
         }
         for table, columns in upgrades.items():
             existing_tables = {row[0] for row in cursor.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
@@ -2056,4 +2901,5 @@ def on_startup():
     SQLModel.metadata.create_all(engine)
     _ensure_schema_columns()
     _seed_if_empty()
+    _repair_legacy_community_times()
     _sync_design_notices()

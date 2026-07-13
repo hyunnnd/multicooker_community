@@ -11,6 +11,8 @@ import '../../../core/widgets/app_image.dart';
 import '../../../core/widgets/main_navigation.dart';
 import '../../../core/widgets/main_route_back_scope.dart';
 import '../provider/community_provider.dart';
+import '../../auth/provider/auth_provider.dart';
+import '../../profile/provider/profile_provider.dart';
 
 part 'pages/community_list_page.dart';
 part 'widgets/community_review_widgets.dart';
@@ -53,13 +55,14 @@ class _ViewState {
 }
 
 class CommunityScreen extends StatefulWidget {
-  const CommunityScreen({this.initialTab, this.initialRecipeId, this.initialRecipeTitle, this.initialRecipeImage, this.initialWriteReview = false, super.key});
+  const CommunityScreen({this.initialTab, this.initialRecipeId, this.initialRecipeTitle, this.initialRecipeImage, this.initialWriteReview = false, this.initialPostId, super.key});
 
   final String? initialTab;
   final String? initialRecipeId;
   final String? initialRecipeTitle;
   final String? initialRecipeImage;
   final bool initialWriteReview;
+  final int? initialPostId;
 
   @override
   State<CommunityScreen> createState() => _CommunityScreenState();
@@ -77,13 +80,19 @@ class _CommunityScreenState extends State<CommunityScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final provider = context.read<CommunityProvider>();
+      context.read<ProfileProvider>().refreshSummary();
       // 커뮤니티에서는 후기 탭을 사용하지 않습니다.
       // 예전 링크로 tab=review가 들어와도 일반 커뮤니티 목록을 보여줍니다.
       if (widget.initialTab == 'review') {
         provider.setTab(CommunityTab.all);
         provider.clearReviewFilters();
       }
-      provider.load();
+      if (widget.initialPostId != null) {
+        provider.load(silent: true);
+        _openPost(widget.initialPostId!);
+      } else {
+        provider.load();
+      }
     });
   }
 
@@ -199,13 +208,23 @@ class _CommunityScreenState extends State<CommunityScreen> {
             initialCategory: _state.category,
             onBack: _goList,
             onSubmit: (category, title, content, imageUrl) async {
-              await context.read<CommunityProvider>().createPost(
-                    category: category,
-                    title: title,
-                    content: content,
-                    imageUrl: imageUrl,
-                  );
-              if (mounted) _goList();
+              final community = context.read<CommunityProvider>();
+              final created = await community.createPost(
+                category: category,
+                title: title,
+                content: content,
+                imageUrl: imageUrl,
+              );
+              if (!mounted) return;
+              if (created) {
+                _goList();
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(community.errorMessage ?? '게시글을 등록하지 못했습니다.'),
+                  ),
+                );
+              }
             },
           ),
         _CommunityView.writeReview => _WriteReviewPage(
@@ -242,6 +261,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
     }
 
     return MainRouteBackScope(
+      backToHomeWhenUnhandled: true,
       onBackPressed: _handleSystemBack,
       child: Scaffold(
         backgroundColor: _state.view == _CommunityView.list ? _bg : Colors.white,

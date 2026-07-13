@@ -265,7 +265,8 @@ void main() {
 
 class _FakeCookerService implements CookerService {
   final _states = StreamController<CookerState>.broadcast();
-  final _connections = StreamController<bool>.broadcast();
+  final _connections = StreamController<ConnectionEvent>.broadcast();
+  final _scanResults = StreamController<List<String>>.broadcast(sync: true);
   bool _connected = false;
   CookerCommand? lastCommand;
   final commands = <CookerCommand>[];
@@ -276,31 +277,43 @@ class _FakeCookerService implements CookerService {
   Stream<CookerState> get states => _states.stream;
 
   @override
-  Stream<bool> get connections => _connections.stream;
+  Stream<ConnectionEvent> get connections => _connections.stream;
+
+  @override
+  Stream<List<String>> get scanResults => _scanResults.stream;
 
   @override
   bool get isConnected => _connected;
 
   @override
   Future<List<String>> scanDevices() async {
+    await startScan();
+    return ['Graphene Multi-Cooker 1'];
+  }
+
+  @override
+  Future<void> startScan() async {
     scanAttempts++;
     if (initializationFailures > 0) {
       initializationFailures--;
       throw Exception('CBManagerStateUnknown');
     }
-    return ['Graphene Multi-Cooker 1'];
+    _scanResults.add(['Graphene Multi-Cooker 1']);
   }
+
+  @override
+  Future<void> stopScan() async {}
 
   @override
   Future<void> connect(String deviceId) async {
     _connected = true;
-    _connections.add(true);
+    _connections.add(ConnectionEvent.connected);
   }
 
   @override
   Future<void> disconnect() async {
     _connected = false;
-    _connections.add(false);
+    _connections.add(ConnectionEvent.disconnectedByUser);
   }
 
   @override
@@ -326,5 +339,6 @@ class _FakeCookerService implements CookerService {
   void dispose() {
     _states.close();
     _connections.close();
+    _scanResults.close();
   }
 }

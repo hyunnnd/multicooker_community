@@ -1,4 +1,4 @@
-import 'dart:typed_data';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -24,7 +24,6 @@ class AiIngredientScanScreen extends StatefulWidget {
 class _AiIngredientScanScreenState extends State<AiIngredientScanScreen> {
   final _picker = ImagePicker();
   XFile? _image;
-  Uint8List? _imageBytes;
 
   Future<void> _pick(ImageSource source) async {
     final image = await _picker.pickImage(
@@ -32,22 +31,15 @@ class _AiIngredientScanScreenState extends State<AiIngredientScanScreen> {
       imageQuality: 85,
       maxWidth: 1600,
     );
-    if (image == null) return;
-    final bytes = await image.readAsBytes();
-    if (!mounted) return;
-    setState(() {
-      _image = image;
-      _imageBytes = bytes;
-    });
+    if (image != null && mounted) setState(() => _image = image);
   }
 
   Future<void> _analyze() async {
     final image = _image;
-    final bytes = _imageBytes;
-    if (image == null || bytes == null) return;
+    if (image == null) return;
     final ok = await context.read<AiRecommendProvider>().analyzeImage(
-      bytes: bytes,
-      filename: image.name.isNotEmpty ? image.name : 'ingredient.png',
+      filePath: image.path,
+      filename: image.name,
       contentType: image.mimeType ?? _contentType(image.name),
     );
     if (!mounted) return;
@@ -59,7 +51,6 @@ class _AiIngredientScanScreenState extends State<AiIngredientScanScreen> {
   String _contentType(String name) {
     final lower = name.toLowerCase();
     if (lower.endsWith('.png')) return 'image/png';
-    if (lower.endsWith('.webp')) return 'image/webp';
     if (lower.endsWith('.heic')) return 'image/heic';
     return 'image/jpeg';
   }
@@ -67,13 +58,12 @@ class _AiIngredientScanScreenState extends State<AiIngredientScanScreen> {
   @override
   Widget build(BuildContext context) {
     final ai = context.watch<AiRecommendProvider>();
-    final bytes = _imageBytes;
     return Scaffold(
       appBar: AppBar(
         leading: const AppBackButton(),
         title: const Text('AI 식재료 인식'),
       ),
-      bottomNavigationBar: const MainNavigationBar(currentIndex: 0),
+      bottomNavigationBar: const MainNavigationBar(currentIndex: -1),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(20),
@@ -87,7 +77,7 @@ class _AiIngredientScanScreenState extends State<AiIngredientScanScreen> {
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(color: _border),
                 ),
-                child: bytes == null
+                child: _image == null
                     ? const Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -112,7 +102,7 @@ class _AiIngredientScanScreenState extends State<AiIngredientScanScreen> {
                           ),
                         ],
                       )
-                    : Image.memory(bytes, fit: BoxFit.cover),
+                    : Image.file(File(_image!.path), fit: BoxFit.cover),
               ),
             ),
             const SizedBox(height: 14),
@@ -142,13 +132,13 @@ class _AiIngredientScanScreenState extends State<AiIngredientScanScreen> {
             if (ai.errorMessage != null) ...[
               const SizedBox(height: 12),
               Text(
-                '분석하지 못했습니다. 로그인과 네트워크 상태를 확인해주세요.\n${ai.errorMessage}',
+                '분석하지 못했습니다. 로그인과 네트워크 상태를 확인해주세요.',
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             ],
             const SizedBox(height: 18),
             FilledButton.icon(
-              onPressed: bytes == null || ai.isLoading ? null : _analyze,
+              onPressed: _image == null || ai.isLoading ? null : _analyze,
               style: FilledButton.styleFrom(
                 backgroundColor: _blue,
                 minimumSize: const Size.fromHeight(52),

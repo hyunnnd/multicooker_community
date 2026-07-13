@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:flutter/foundation.dart';
 
 import '../data/ai_recommend_repository.dart';
@@ -13,9 +11,10 @@ class AiRecommendProvider extends ChangeNotifier {
   bool isLoading = false;
   String? errorMessage;
   AiRecommendResult? result;
+  Map<String, dynamic>? lastUploadInfo;
 
   Future<bool> analyzeImage({
-    required Uint8List bytes,
+    required String filePath,
     required String filename,
     required String contentType,
   }) async {
@@ -24,10 +23,11 @@ class AiRecommendProvider extends ChangeNotifier {
     notifyListeners();
     try {
       result = await repository.analyzeImage(
-        bytes: bytes,
+        filePath: filePath,
         filename: filename,
         contentType: contentType,
       );
+      lastUploadInfo = repository.lastUploadInfo;
       return true;
     } catch (error) {
       errorMessage = error.toString();

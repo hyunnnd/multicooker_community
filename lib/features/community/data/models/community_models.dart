@@ -1,5 +1,24 @@
 import 'package:flutter/foundation.dart';
 
+String communityRelativeTime(DateTime? createdAt, {String fallback = ''}) {
+  if (createdAt == null) return fallback;
+
+  final now = DateTime.now();
+  var difference = now.difference(createdAt.toLocal());
+  if (difference.isNegative) difference = Duration.zero;
+
+  if (difference.inSeconds < 60) return '방금 전';
+  if (difference.inMinutes < 60) return '${difference.inMinutes}분 전';
+  if (difference.inHours < 24) return '${difference.inHours}시간 전';
+  if (difference.inDays == 1) return '어제';
+  if (difference.inDays < 7) return '${difference.inDays}일 전';
+
+  final local = createdAt.toLocal();
+  final month = local.month.toString().padLeft(2, '0');
+  final day = local.day.toString().padLeft(2, '0');
+  return '${local.year}.$month.$day';
+}
+
 enum CommunityTab {
   all('전체'),
   popular('인기'),
@@ -60,6 +79,7 @@ class CommunityReply {
     required this.avatarColor,
     required this.content,
     required this.timeAgo,
+    this.createdAt,
     required this.likes,
     this.isLiked = false,
     this.isMine = false,
@@ -70,6 +90,8 @@ class CommunityReply {
   final int avatarColor;
   final String content;
   final String timeAgo;
+  final DateTime? createdAt;
+  String get relativeTime => communityRelativeTime(createdAt, fallback: timeAgo);
   final int likes;
   final bool isLiked;
   final bool isMine;
@@ -80,6 +102,7 @@ class CommunityReply {
     int? avatarColor,
     String? content,
     String? timeAgo,
+    DateTime? createdAt,
     int? likes,
     bool? isLiked,
     bool? isMine,
@@ -90,6 +113,7 @@ class CommunityReply {
         avatarColor: avatarColor ?? this.avatarColor,
         content: content ?? this.content,
         timeAgo: timeAgo ?? this.timeAgo,
+        createdAt: createdAt ?? this.createdAt,
         likes: likes ?? this.likes,
         isLiked: isLiked ?? this.isLiked,
         isMine: isMine ?? this.isMine,
@@ -104,6 +128,7 @@ class CommunityComment {
     required this.avatarColor,
     required this.content,
     required this.timeAgo,
+    this.createdAt,
     required this.likes,
     required this.replies,
     this.isLiked = false,
@@ -115,6 +140,8 @@ class CommunityComment {
   final int avatarColor;
   final String content;
   final String timeAgo;
+  final DateTime? createdAt;
+  String get relativeTime => communityRelativeTime(createdAt, fallback: timeAgo);
   final int likes;
   final bool isLiked;
   final bool isMine;
@@ -126,6 +153,7 @@ class CommunityComment {
     int? avatarColor,
     String? content,
     String? timeAgo,
+    DateTime? createdAt,
     int? likes,
     bool? isLiked,
     bool? isMine,
@@ -137,6 +165,7 @@ class CommunityComment {
         avatarColor: avatarColor ?? this.avatarColor,
         content: content ?? this.content,
         timeAgo: timeAgo ?? this.timeAgo,
+        createdAt: createdAt ?? this.createdAt,
         likes: likes ?? this.likes,
         isLiked: isLiked ?? this.isLiked,
         isMine: isMine ?? this.isMine,
@@ -152,6 +181,7 @@ class CommunityPost {
     required this.username,
     required this.avatarColor,
     required this.timeAgo,
+    this.createdAt,
     required this.title,
     required this.content,
     required this.likes,
@@ -160,7 +190,6 @@ class CommunityPost {
     this.imageUrl,
     this.tags = const [],
     this.isLiked = false,
-    this.isBookmarked = false,
     this.isMine = false,
   });
 
@@ -169,6 +198,8 @@ class CommunityPost {
   final String username;
   final int avatarColor;
   final String timeAgo;
+  final DateTime? createdAt;
+  String get relativeTime => communityRelativeTime(createdAt, fallback: timeAgo);
   final String title;
   final String content;
   final int likes;
@@ -177,7 +208,6 @@ class CommunityPost {
   final List<String> tags;
   final ActivitySet activity;
   final bool isLiked;
-  final bool isBookmarked;
   final bool isMine;
 
   int get commentCount => comments.fold<int>(0, (sum, comment) => sum + 1 + comment.replies.length);
@@ -195,6 +225,7 @@ class CommunityPost {
     String? username,
     int? avatarColor,
     String? timeAgo,
+    DateTime? createdAt,
     String? title,
     String? content,
     int? likes,
@@ -203,7 +234,6 @@ class CommunityPost {
     List<String>? tags,
     ActivitySet? activity,
     bool? isLiked,
-    bool? isBookmarked,
     bool? isMine,
   }) =>
       CommunityPost(
@@ -212,6 +242,7 @@ class CommunityPost {
         username: username ?? this.username,
         avatarColor: avatarColor ?? this.avatarColor,
         timeAgo: timeAgo ?? this.timeAgo,
+        createdAt: createdAt ?? this.createdAt,
         title: title ?? this.title,
         content: content ?? this.content,
         likes: likes ?? this.likes,
@@ -220,7 +251,6 @@ class CommunityPost {
         tags: tags ?? this.tags,
         activity: activity ?? this.activity,
         isLiked: isLiked ?? this.isLiked,
-        isBookmarked: isBookmarked ?? this.isBookmarked,
         isMine: isMine ?? this.isMine,
       );
 }
@@ -361,6 +391,7 @@ class CommunityNotification {
     required this.postTitle,
     required this.postId,
     required this.timeAgo,
+    this.createdAt,
     required this.read,
   });
 
@@ -371,6 +402,8 @@ class CommunityNotification {
   final String postTitle;
   final int postId;
   final String timeAgo;
+  final DateTime? createdAt;
+  String get relativeTime => communityRelativeTime(createdAt, fallback: timeAgo);
   final bool read;
 
   CommunityNotification copyWith({bool? read}) => CommunityNotification(
@@ -381,6 +414,7 @@ class CommunityNotification {
         postTitle: postTitle,
         postId: postId,
         timeAgo: timeAgo,
+        createdAt: createdAt,
         read: read ?? this.read,
       );
 }

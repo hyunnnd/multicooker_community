@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../../../../core/widgets/app_image.dart';
-
 import '../../data/models/recipe_instruction_step.dart';
 
 class InstructionStepCard extends StatelessWidget {
@@ -49,15 +47,20 @@ class InstructionStepCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   clipBehavior: Clip.antiAlias,
-                  child: AppImage(
-                    source: step.imageUrl,
-                    fit: BoxFit.cover,
-                    placeholder: const Icon(
-                      Icons.image_outlined,
-                      color: Color(0xFF3378C0),
-                      size: 32,
-                    ),
-                  ),
+                  child: step.imageUrl == null
+                      ? const Icon(
+                          Icons.image_outlined,
+                          color: Color(0xFF3378C0),
+                          size: 32,
+                        )
+                      : Image.network(
+                          step.imageUrl!,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, _, _) => const Icon(
+                            Icons.image_outlined,
+                            color: Color(0xFF3378C0),
+                          ),
+                        ),
                 ),
                 if (step.requiresUserAction) ...[
                   const SizedBox(height: 10),

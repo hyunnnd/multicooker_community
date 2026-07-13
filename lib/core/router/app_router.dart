@@ -15,11 +15,13 @@ import '../../features/cooking/presentation/cooking_preparation_screen.dart';
 import '../../features/cooking/presentation/recipe_cooking_flow_screen.dart';
 import '../../features/device/presentation/device_screen.dart';
 import '../../features/home/presentation/home_screen.dart';
+import '../../features/profile/presentation/profile_pages.dart';
+import '../../features/recipe/presentation/recipe_browse_screens.dart';
 import '../../features/recipe/presentation/recipe_detail_screen.dart';
 import '../../features/recipe/presentation/recipe_list_screen.dart';
-import '../../features/recipe/presentation/recipe_browse_screens.dart';
-import '../../features/recipe/presentation/recipe_search_screen.dart';
 import '../../features/recipe/presentation/recipe_results_screen.dart';
+import '../../features/recipe/presentation/recipe_search_screen.dart';
+import '../../features/recipe/presentation/recipe_upload_screen.dart';
 import '../../features/settings/presentation/settings_screen.dart';
 import '../../features/splash/presentation/splash_screen.dart';
 
@@ -60,11 +62,26 @@ final appRouter = GoRouter(
     GoRoute(path: '/home', builder: (_, _) => const HomeScreen()),
     GoRoute(path: '/device', builder: (_, _) => const DeviceScreen()),
     GoRoute(path: '/recipes', builder: (_, _) => const RecipeListScreen()),
-    GoRoute(path: '/recipes/search', builder: (_, _) => const RecipeSearchScreen()),
-
-    GoRoute(path: '/recipes/cook-method', builder: (_, _) => const CookMethodScreen()),
-    GoRoute(path: '/recipes/food-type', builder: (_, _) => const FoodTypeScreen()),
-    GoRoute(path: '/recipes/themes', builder: (_, _) => const ThemeSelectScreen()),
+    GoRoute(
+      path: '/recipes/upload',
+      builder: (_, _) => const RecipeUploadScreen(),
+    ),
+    GoRoute(
+      path: '/recipes/search',
+      builder: (_, _) => const RecipeSearchScreen(),
+    ),
+    GoRoute(
+      path: '/recipes/cook-method',
+      builder: (_, _) => const CookMethodScreen(),
+    ),
+    GoRoute(
+      path: '/recipes/food-type',
+      builder: (_, _) => const FoodTypeScreen(),
+    ),
+    GoRoute(
+      path: '/recipes/themes',
+      builder: (_, _) => const ThemeSelectScreen(),
+    ),
     GoRoute(
       path: '/recipes/browse',
       builder: (_, state) => RecipeBrowseListScreen(
@@ -74,9 +91,8 @@ final appRouter = GoRouter(
     ),
     GoRoute(
       path: '/recipes/results',
-      builder: (_, state) => RecipeResultsScreen(
-        query: state.uri.queryParameters['q'] ?? '',
-      ),
+      builder: (_, state) =>
+          RecipeResultsScreen(query: state.uri.queryParameters['q'] ?? ''),
     ),
     GoRoute(
       path: '/recipes/:id',
@@ -118,8 +134,29 @@ final appRouter = GoRouter(
         initialRecipeTitle: state.uri.queryParameters['recipeTitle'],
         initialRecipeImage: state.uri.queryParameters['recipeImage'],
         initialWriteReview: state.uri.queryParameters['write'] == '1',
+        initialPostId: int.tryParse(state.uri.queryParameters['postId'] ?? ''),
       ),
     ),
     GoRoute(path: '/settings', builder: (_, _) => const SettingsScreen()),
+    GoRoute(
+      path: '/settings/app',
+      builder: (_, _) => const AppPreferencesScreen(),
+    ),
+    GoRoute(path: '/my/recipes', builder: (_, _) => const MyRecipesScreen()),
+    GoRoute(
+      path: '/my/recipes/new',
+      builder: (_, _) => const RecipeUploadScreen(returnToMyRecipes: true),
+    ),
+    GoRoute(
+      path: '/my/saved-recipes',
+      builder: (_, _) => const SavedRecipesScreen(),
+    ),
+    GoRoute(path: '/my/reviews', builder: (_, _) => const MyReviewsScreen()),
+    GoRoute(path: '/my/comments', builder: (_, _) => const MyCommentsScreen()),
+    GoRoute(
+      path: '/my/cooking-history',
+      builder: (_, _) => const CookingHistoryScreen(),
+    ),
+    GoRoute(path: '/my/tutorial', builder: (_, _) => const TutorialScreen()),
   ],
 );

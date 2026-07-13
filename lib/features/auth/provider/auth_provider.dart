@@ -55,6 +55,14 @@ class AuthProvider extends ChangeNotifier {
     });
   }
 
+  Future<bool> loginWithGoogleCode(String code) async {
+    return _run(() async {
+      token = await _repository.loginWithGoogleCode(code);
+      isAuthenticated = true;
+      await _loadMe(silent: true);
+    });
+  }
+
   Future<bool> refreshToken() async {
     return _run(() async {
       token = await _repository.refreshToken();
@@ -85,6 +93,13 @@ class AuthProvider extends ChangeNotifier {
     } catch (error) {
       if (!silent) errorMessage = error.toString();
     }
+  }
+
+  void setLocalNickname(String nickname) {
+    final value = nickname.trim();
+    if (value.isEmpty) return;
+    currentNickname = value;
+    notifyListeners();
   }
 
   void clearError() {

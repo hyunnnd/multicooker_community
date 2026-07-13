@@ -8,20 +8,28 @@ import '../../recipe/data/models/cooker_step.dart';
 import '../../recipe/data/models/recipe.dart';
 import '../../recipe/data/models/recipe_compatibility_type.dart';
 import '../../recipe/data/models/recipe_instruction_step.dart';
+import '../../profile/data/profile_repository.dart';
 import '../data/models/cooking_session_state.dart';
 
 class CookingSessionProvider extends ChangeNotifier {
-  static const _preheatSafetyMinutes = 30;
+  static const _preheatSafetyMinutes = 100;
 
-  CookingSessionProvider(this._service) {
+  CookingSessionProvider(
+    this._service, {
+    ProfileRepository? profileRepository,
+  }) : _profileRepository = profileRepository {
     _statusSubscription = _service.states.listen(_onCookerStatus);
   }
 
   final CookerService _service;
+  final ProfileRepository? _profileRepository;
   Timer? _timer;
   StreamSubscription<CookerState>? _statusSubscription;
   List<CookingSection> _sections = const [];
   bool _singleStepMode = false;
+  DateTime? _keepLocalClockUntil;
+  DateTime? _sessionStartedAt;
+  bool _historyRecorded = false;
   CookingSessionState state = const CookingSessionState();
 
   Recipe? get currentRecipe => state.recipe;
@@ -58,6 +66,9 @@ class CookingSessionProvider extends ChangeNotifier {
           ),
         )
         .toList(growable: false);
+    _keepLocalClockUntil = null;
+    _sessionStartedAt = null;
+    _historyRecorded = false;
     state = CookingSessionState(recipe: recipe);
     notifyListeners();
   }
@@ -72,6 +83,7 @@ class CookingSessionProvider extends ChangeNotifier {
     CookingControlMode controlMode = CookingControlMode.automatic,
   }) async {
     prepareRecipe(recipe);
+    _markSessionStarted();
     _singleStepMode = false;
     _sections = [
       CookingSection(
@@ -95,6 +107,7 @@ class CookingSessionProvider extends ChangeNotifier {
   Future<void> startRecipeProgram() async {
     final recipe = state.recipe;
     if (recipe == null || !recipe.supportsCooker) return;
+    _markSessionStarted();
     _singleStepMode = false;
     final sections = recipe.cookerSteps
         .map(
@@ -113,6 +126,7 @@ class CookingSessionProvider extends ChangeNotifier {
       phase: CookingPhase.cooking,
       isRunning: true,
       isPaused: false,
+      isCompleted: false,
       currentStatusText: '조리 중',
       controlMode: CookingControlMode.automatic,
     );
@@ -126,6 +140,7 @@ class CookingSessionProvider extends ChangeNotifier {
   }) async {
     final recipe = state.recipe;
     if (recipe == null || !recipe.supportsCooker) return;
+    _markSessionStarted();
     _singleStepMode = true;
     _sections = [CookingSection(temperature: temperature, duration: duration)];
     final linkedId =
@@ -138,6 +153,7 @@ class CookingSessionProvider extends ChangeNotifier {
       phase: CookingPhase.cooking,
       isRunning: true,
       isPaused: false,
+      isCompleted: false,
       currentInstructionIndex: instructionIndex,
       currentCookerStepIndex: cookerIndex < 0 ? 0 : cookerIndex,
       targetTemperature: temperature,
@@ -152,6 +168,7 @@ class CookingSessionProvider extends ChangeNotifier {
   void startAppStep({required int instructionIndex}) {
     final recipe = state.recipe;
     if (recipe == null) return;
+    _markSessionStarted();
     final instruction = recipe.instructionSteps[instructionIndex];
     _singleStepMode = true;
     state = state.copyWith(
@@ -159,6 +176,7 @@ class CookingSessionProvider extends ChangeNotifier {
       controlMode: CookingControlMode.semiAutomatic,
       isRunning: true,
       isPaused: false,
+      isCompleted: false,
       currentInstructionIndex: instructionIndex,
       targetTemperature: 0,
       remainingSeconds: (instruction.estimatedTimeMin ?? 0) * 60,
@@ -189,9 +207,58 @@ class CookingSessionProvider extends ChangeNotifier {
     _startTimer();
   }
 
+  Future<void> updateCookerSettings({
+    required int temperature,
+    int? durationMinutes,
+  }) async {
+    if (state.phase != CookingPhase.preheating &&
+        state.phase != CookingPhase.cooking) {
+      return;
+    }
+    if (_sections.isEmpty) return;
+
+    final index = state.phase == CookingPhase.preheating || _singleStepMode
+        ? 0
+        : state.currentCookerStepIndex.clamp(0, _sections.length - 1).toInt();
+    final section = _sections[index];
+    final duration = durationMinutes ?? section.duration;
+    final nextSections = [..._sections];
+    nextSections[index] = CookingSection(
+      temperature: temperature,
+      duration: duration,
+    );
+    _sections = nextSections;
+
+    if (state.phase == CookingPhase.cooking) {
+      await _service.send(_command(CookingStatus.stopped));
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
+    await _service.send(_command(CookingStatus.cooking));
+    if (durationMinutes != null) {
+      _keepLocalClockUntil = DateTime.now().add(const Duration(seconds: 3));
+    }
+    state = state.copyWith(
+      targetTemperature: temperature,
+      remainingSeconds: durationMinutes == null
+          ? state.remainingSeconds
+          : duration * 60,
+    );
+    notifyListeners();
+    if (durationMinutes != null) _startTimer();
+  }
+
   Future<void> stopCooking() async {
+    final recipe = state.recipe;
+    final startedAt = _sessionStartedAt;
     await _service.send(_command(CookingStatus.stopped));
     _timer?.cancel();
+    if (recipe != null && startedAt != null && !_historyRecorded) {
+      await _recordHistory(
+        recipe: recipe,
+        status: 'cancelled',
+        startedAt: startedAt,
+      );
+    }
     state = const CookingSessionState();
     notifyListeners();
   }
@@ -199,6 +266,7 @@ class CookingSessionProvider extends ChangeNotifier {
   Future<void> finishSession() async {
     _timer?.cancel();
     _sections = const [];
+    _keepLocalClockUntil = null;
     try {
       await _service.send(_command(CookingStatus.standby));
     } finally {
@@ -242,6 +310,7 @@ class CookingSessionProvider extends ChangeNotifier {
   }
 
   void completeCooking() {
+    final recipe = state.recipe;
     _timer?.cancel();
     state = state.copyWith(
       isRunning: false,
@@ -250,6 +319,15 @@ class CookingSessionProvider extends ChangeNotifier {
       currentStatusText: '조리 완료',
     );
     notifyListeners();
+    if (recipe != null && !_historyRecorded) {
+      unawaited(
+        _recordHistory(
+          recipe: recipe,
+          status: 'completed',
+          startedAt: _sessionStartedAt ?? DateTime.now(),
+        ),
+      );
+    }
   }
 
   void _advance() {
@@ -279,14 +357,20 @@ class CookingSessionProvider extends ChangeNotifier {
         ? null
         : recipe.cookerSteps[cookerIndex];
     final hasLinkedStep = instruction.linkedCookerStepId != null;
+    final section = hasLinkedStep && cookerIndex < _sections.length
+        ? _sections[cookerIndex]
+        : null;
     state = state.copyWith(
       currentInstructionIndex: index,
       currentCookerStepIndex: cookerIndex,
+      isCompleted: false,
       remainingSeconds: hasLinkedStep
-          ? cookerStep!.timeMin * 60
+          ? (section?.duration ?? cookerStep!.timeMin) * 60
           : (instruction.estimatedTimeMin ?? 0) * 60,
       currentTemperature: state.currentTemperature,
-      targetTemperature: hasLinkedStep ? cookerStep!.temperature : 0,
+      targetTemperature: hasLinkedStep
+          ? section?.temperature ?? cookerStep!.temperature
+          : 0,
       currentStatusText: hasLinkedStep ? cookerStep!.label : '사용자 단계',
       needsUserAction: false,
       clearUserActionMessage: true,
@@ -375,19 +459,27 @@ class CookingSessionProvider extends ChangeNotifier {
       if (reportedIndex < recipe.cookerSteps.length) {
         cookerIndex = reportedIndex;
         final cookerStep = recipe.cookerSteps[cookerIndex];
-        targetTemperature = cookerStep.temperature;
+        targetTemperature = cookerIndex < _sections.length
+            ? _sections[cookerIndex].temperature
+            : cookerStep.temperature;
         final found = recipe.instructionSteps.indexWhere(
           (step) => step.linkedCookerStepId == cookerStep.id,
         );
         if (found >= 0) instructionIndex = found;
       }
     }
+    final keepLocalClock =
+        _keepLocalClockUntil?.isAfter(DateTime.now()) ?? false;
+    if (!keepLocalClock) _keepLocalClockUntil = null;
+
     state = state.copyWith(
       currentInstructionIndex: instructionIndex,
       currentCookerStepIndex: cookerIndex,
       currentTemperature: cooker.currentTemperature,
       targetTemperature: targetTemperature,
-      remainingSeconds: (cooker.currentMinute * 60) + cooker.currentSecond,
+      remainingSeconds: keepLocalClock
+          ? state.remainingSeconds
+          : (cooker.currentMinute * 60) + cooker.currentSecond,
       currentStatusText: switch (cooker.status) {
         CookingStatus.cooking => '조리 중',
         CookingStatus.stopped => '조리 중지',
@@ -452,6 +544,53 @@ class CookingSessionProvider extends ChangeNotifier {
       currentStatusText: '다음 단계 준비',
     );
     notifyListeners();
+  }
+
+
+  void _markSessionStarted() {
+    _sessionStartedAt ??= DateTime.now();
+  }
+
+  Future<void> _recordHistory({
+    required Recipe recipe,
+    required String status,
+    required DateTime startedAt,
+  }) async {
+    if (_historyRecorded) return;
+    _historyRecorded = true;
+    final repository = _profileRepository;
+    if (repository == null) return;
+
+    var elapsedSeconds = 0;
+    final steps = <Map<String, dynamic>>[];
+    for (final step in recipe.cookerSteps) {
+      elapsedSeconds += step.timeMin * 60;
+      steps.add({
+        'temperature': step.temperature,
+        'time_offset': elapsedSeconds,
+        'label': step.label,
+      });
+    }
+    final maxTemperature = recipe.cookerSteps.isEmpty
+        ? state.targetTemperature
+        : recipe.cookerSteps
+            .map((step) => step.temperature)
+            .reduce((a, b) => a > b ? a : b);
+    try {
+      await repository.createCookingHistory(
+        recipeId: recipe.id,
+        recipeTitle: recipe.title,
+        deviceName: 'Graphene Multi-Cooker',
+        status: status,
+        totalTimeMin: recipe.totalTimeMin,
+        maxTemperature: maxTemperature,
+        steps: steps,
+        startedAt: startedAt,
+        finishedAt: DateTime.now(),
+      );
+    } catch (_) {
+      // 조리 완료 화면은 유지하고, 이력 서버 오류 때문에 조리 흐름을 막지 않습니다.
+    }
   }
 
   @override

@@ -82,7 +82,7 @@ class _CommentCardState extends State<_CommentCard> {
                   children: [
                     Text(widget.comment.username, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w900)),
                     const SizedBox(width: 5),
-                    Text(widget.comment.timeAgo, style: const TextStyle(fontSize: 11, color: Color(0xFF9CA3AF))),
+                    Text(widget.comment.relativeTime, style: const TextStyle(fontSize: 11, color: Color(0xFF9CA3AF))),
                     const Spacer(),
                     _DotMenu(
                       isOwn: widget.comment.isMine,
@@ -144,11 +144,13 @@ class _CommentCardState extends State<_CommentCard> {
                       Expanded(
                         child: TextField(
                           controller: _replyController,
+                          textAlignVertical: TextAlignVertical.center,
                           minLines: 1,
                           maxLines: 3,
                           decoration: InputDecoration(
                             hintText: '답글을 입력하세요',
                             isDense: true,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                             filled: true,
                             fillColor: const Color(0xFFF9FAFB),
                             border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),
@@ -223,7 +225,7 @@ class _ReplyRowState extends State<_ReplyRow> {
                   children: [
                     Text(widget.reply.username, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900)),
                     const SizedBox(width: 5),
-                    Text(widget.reply.timeAgo, style: const TextStyle(fontSize: 10, color: Color(0xFF9CA3AF))),
+                    Text(widget.reply.relativeTime, style: const TextStyle(fontSize: 10, color: Color(0xFF9CA3AF))),
                     const Spacer(),
                     _DotMenu(
                       isOwn: widget.reply.isMine,

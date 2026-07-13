@@ -9,7 +9,7 @@ class AiRecommendScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(leading: const AppBackButton()),
-      bottomNavigationBar: const MainNavigationBar(currentIndex: 0),
+      bottomNavigationBar: const MainNavigationBar(currentIndex: -1),
       body: const Center(
         child: Padding(
           padding: EdgeInsets.all(24),

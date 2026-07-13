@@ -3,6 +3,7 @@ import 'package:dio/dio.dart';
 import '../../../core/constants/api_constants.dart';
 import 'models/complete_register_request.dart';
 import 'models/complete_reset_password_request.dart';
+import 'models/google_token_exchange_request.dart';
 import 'models/login_request.dart';
 import 'models/refresh_request.dart';
 import 'models/send_email_request.dart';
@@ -55,6 +56,18 @@ class AuthApi {
   Future<TokenResponse> login(LoginRequest request) async {
     final response = await _dio.post(
       ApiConstants.login,
+      data: request.toJson(),
+    );
+    return TokenResponse.fromJson(
+      Map<String, dynamic>.from(response.data as Map),
+    );
+  }
+
+  Future<TokenResponse> exchangeGoogleCode(
+    GoogleTokenExchangeRequest request,
+  ) async {
+    final response = await _dio.post(
+      ApiConstants.googleToken,
       data: request.toJson(),
     );
     return TokenResponse.fromJson(

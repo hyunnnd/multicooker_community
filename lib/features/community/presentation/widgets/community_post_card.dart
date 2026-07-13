@@ -10,18 +10,14 @@ class CommunityPostCard extends StatelessWidget {
   const CommunityPostCard({
     required this.post,
     required this.liked,
-    required this.bookmarked,
     required this.onLike,
-    required this.onBookmark,
     required this.onTap,
     super.key,
   });
 
   final CommunityPost post;
   final bool liked;
-  final bool bookmarked;
   final VoidCallback onLike;
-  final VoidCallback onBookmark;
   final VoidCallback onTap;
 
   @override
@@ -44,7 +40,7 @@ class CommunityPostCard extends StatelessWidget {
                 const SizedBox(width: 4),
                 const Text('·', style: TextStyle(fontSize: 11, color: Color(0xFFD1D5DB))),
                 const SizedBox(width: 4),
-                Text(post.timeAgo, style: const TextStyle(fontSize: 11, color: Color(0xFF9CA3AF))),
+                Text(post.relativeTime, style: const TextStyle(fontSize: 11, color: Color(0xFF9CA3AF))),
                 const Spacer(),
                 if (isPopular)
                   Container(
@@ -117,13 +113,7 @@ class CommunityPostCard extends StatelessWidget {
                 const Icon(Icons.mode_comment_outlined, size: 16, color: Color(0xFF9CA3AF)),
                 const SizedBox(width: 4),
                 Text('${post.commentCount}', style: const TextStyle(fontSize: 12, color: kCommunitySubtext)),
-                const Spacer(),
-                IconButton(
-                  padding: EdgeInsets.zero,
-                  visualDensity: VisualDensity.compact,
-                  icon: Icon(bookmarked ? Icons.bookmark : Icons.bookmark_border, size: 18, color: bookmarked ? kCommunityOrange : const Color(0xFF9CA3AF)),
-                  onPressed: onBookmark,
-                ),
+
               ],
             ),
           ],

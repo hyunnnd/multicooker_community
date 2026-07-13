@@ -31,7 +31,7 @@ class DioClient {
   /// Local app/API server client. Use this for community, recipes, AI, device.
   late final Dio apiDio;
 
-  /// Company authentication server client. Use this only for auth flows.
+  /// Company server client. Used for authentication and company recipe APIs.
   late final Dio authDio;
 
   /// Backward-compatible alias. New code should use apiDio or authDio.

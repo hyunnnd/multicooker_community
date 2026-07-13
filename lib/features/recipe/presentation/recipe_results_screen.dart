@@ -24,87 +24,136 @@ class _RecipeResultsScreenState extends State<RecipeResultsScreen> {
     final results = _filtered(provider.recipes, widget.query);
 
     return Scaffold(
-        backgroundColor: figmaBg,
-        body: SafeArea(
-          child: Column(
-            children: [
-              Container(
-                color: Colors.white,
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                child: Column(
-                  children: [
-                    Row(
-                      children: [
-                        InkWell(onTap: () => context.go('/recipes/search'), child: const Icon(Icons.arrow_back_rounded, size: 22, color: figmaGray500)),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: InkWell(
-                            onTap: () => context.go('/recipes/search'),
-                            borderRadius: BorderRadius.circular(12),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                              decoration: BoxDecoration(color: figmaGray100, borderRadius: BorderRadius.circular(12)),
-                              child: Row(
-                                children: [
-                                  const Icon(Icons.search_rounded, size: 16, color: figmaGray400),
-                                  const SizedBox(width: 8),
-                                  Expanded(child: Text(widget.query.isEmpty ? '삼겹살' : widget.query, style: const TextStyle(fontSize: 14, color: figmaGray900))),
-                                ],
-                              ),
+      backgroundColor: figmaBg,
+      body: SafeArea(
+        child: Column(
+          children: [
+            Container(
+              color: Colors.white,
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      InkWell(
+                        onTap: () => context.go('/recipes/search'),
+                        child: const Icon(
+                          Icons.arrow_back_rounded,
+                          size: 22,
+                          color: figmaGray500,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: InkWell(
+                          onTap: () => context.go('/recipes/search'),
+                          borderRadius: BorderRadius.circular(12),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
+                            ),
+                            decoration: BoxDecoration(
+                              color: figmaGray100,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  Icons.search_rounded,
+                                  size: 16,
+                                  color: figmaGray400,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    widget.query.isEmpty ? '삼겹살' : widget.query,
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      color: figmaGray900,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        Container(
-                          width: 36,
-                          height: 36,
-                          decoration: BoxDecoration(color: figmaGray100, borderRadius: BorderRadius.circular(12)),
-                          child: const Icon(Icons.tune_rounded, size: 18, color: figmaGray500),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: figmaGray100,
+                          borderRadius: BorderRadius.circular(12),
                         ),
+                        child: const Icon(
+                          Icons.tune_rounded,
+                          size: 18,
+                          color: figmaGray500,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    height: 32,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemBuilder: (_, index) {
+                        final chip = _chips[index];
+                        return FigmaFilterChip(
+                          label: chip,
+                          active: _filter == chip,
+                          onTap: () => setState(() => _filter = chip),
+                        );
+                      },
+                      separatorBuilder: (_, _) => const SizedBox(width: 8),
+                      itemCount: _chips.length,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: results.isEmpty
+                  ? _EmptyResult(onReset: () => setState(() => _filter = '전체'))
+                  : ListView(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                      children: [
+                        Text(
+                          '검색 결과 ${results.length}개',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: figmaGray400,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        for (final recipe in results.take(8)) ...[
+                          FigmaRecipeCard(
+                            recipe: recipe,
+                            onTap: () => _open(context, provider, recipe),
+                            onSave: () => provider.toggleSaved(recipe.id),
+                          ),
+                          const SizedBox(height: 14),
+                        ],
                       ],
                     ),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      height: 32,
-                      child: ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        itemBuilder: (_, index) {
-                          final chip = _chips[index];
-                          return FigmaFilterChip(label: chip, active: _filter == chip, onTap: () => setState(() => _filter = chip));
-                        },
-                        separatorBuilder: (_, _) => const SizedBox(width: 8),
-                        itemCount: _chips.length,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Expanded(
-                child: results.isEmpty
-                    ? _EmptyResult(onReset: () => setState(() => _filter = '전체'))
-                    : ListView(
-                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-                        children: [
-                          Text('검색 결과 ${results.length}개', style: const TextStyle(fontSize: 12, color: figmaGray400, fontWeight: FontWeight.w700)),
-                          const SizedBox(height: 12),
-                          for (final recipe in results.take(8)) ...[
-                            FigmaRecipeCard(recipe: recipe, onTap: () => _open(context, provider, recipe), onSave: () => provider.toggleSaved(recipe.id)),
-                            const SizedBox(height: 14),
-                          ],
-                        ],
-                      ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
-      );
+      ),
+    );
   }
 
   List<Recipe> _filtered(List<Recipe> recipes, String query) {
     final q = query.trim().toLowerCase();
     var list = recipes.where((recipe) {
       if (q.isEmpty) return true;
-      return recipe.title.toLowerCase().contains(q) || recipe.description.toLowerCase().contains(q) || recipe.ingredients.any((e) => e.name.toLowerCase().contains(q));
+      return recipe.title.toLowerCase().contains(q) ||
+          recipe.description.toLowerCase().contains(q) ||
+          recipe.ingredients.any((e) => e.name.toLowerCase().contains(q));
     }).toList();
     switch (_filter) {
       case '공식':
@@ -142,9 +191,20 @@ class _EmptyResult extends StatelessWidget {
         children: [
           const Text('🔍', style: TextStyle(fontSize: 52)),
           const SizedBox(height: 16),
-          const Text('검색 결과가 없어요', style: TextStyle(fontSize: 18, color: figmaGray900, fontWeight: FontWeight.w900)),
+          const Text(
+            '검색 결과가 없어요',
+            style: TextStyle(
+              fontSize: 18,
+              color: figmaGray900,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
           const SizedBox(height: 8),
-          const Text('검색어를 다시 확인하거나 다른 키워드로 검색해보세요.', textAlign: TextAlign.center, style: TextStyle(fontSize: 14, color: figmaGray400, height: 1.4)),
+          const Text(
+            '검색어를 다시 확인하거나 다른 키워드로 검색해보세요.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 14, color: figmaGray400, height: 1.4),
+          ),
           const SizedBox(height: 22),
           Wrap(
             spacing: 8,
@@ -161,9 +221,17 @@ class _EmptyResult extends StatelessWidget {
             width: double.infinity,
             height: 48,
             child: FilledButton(
-              style: FilledButton.styleFrom(backgroundColor: figmaOrange, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+              style: FilledButton.styleFrom(
+                backgroundColor: figmaOrange,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
               onPressed: () => context.go('/recipes'),
-              child: const Text('추천 레시피 보기', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w900)),
+              child: const Text(
+                '추천 레시피 보기',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w900),
+              ),
             ),
           ),
           const SizedBox(height: 10),
@@ -171,9 +239,21 @@ class _EmptyResult extends StatelessWidget {
             width: double.infinity,
             height: 48,
             child: TextButton(
-              style: TextButton.styleFrom(backgroundColor: figmaGray100, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+              style: TextButton.styleFrom(
+                backgroundColor: figmaGray100,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
               onPressed: onReset,
-              child: const Text('필터 초기화', style: TextStyle(fontSize: 14, color: figmaGray500, fontWeight: FontWeight.w900)),
+              child: const Text(
+                '필터 초기화',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: figmaGray500,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
             ),
           ),
         ],
@@ -188,8 +268,18 @@ class _KeywordChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-        decoration: BoxDecoration(border: Border.all(color: figmaOrange), borderRadius: BorderRadius.circular(999)),
-        child: Text(label, style: const TextStyle(fontSize: 13, color: figmaOrange, fontWeight: FontWeight.w800)),
-      );
+    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+    decoration: BoxDecoration(
+      border: Border.all(color: figmaOrange),
+      borderRadius: BorderRadius.circular(999),
+    ),
+    child: Text(
+      label,
+      style: const TextStyle(
+        fontSize: 13,
+        color: figmaOrange,
+        fontWeight: FontWeight.w800,
+      ),
+    ),
+  );
 }

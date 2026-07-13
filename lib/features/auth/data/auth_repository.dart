@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 
 import '../../../core/network/api_exception.dart';
@@ -5,6 +7,7 @@ import '../../../core/storage/secure_token_storage.dart';
 import 'auth_api.dart';
 import 'models/complete_register_request.dart';
 import 'models/complete_reset_password_request.dart';
+import 'models/google_token_exchange_request.dart';
 import 'models/login_request.dart';
 import 'models/refresh_request.dart';
 import 'models/token_response.dart';
@@ -44,6 +47,7 @@ class AuthRepository {
       final authToken = await _authApi.login(
         LoginRequest(email: email, password: password),
       );
+      _ensureValidTokenResponse(authToken);
       await _storage.saveAuthTokens(
         accessToken: authToken.accessToken,
         refreshToken: authToken.refreshToken,
@@ -54,16 +58,43 @@ class AuthRepository {
     });
   }
 
+  Future<TokenResponse> loginWithGoogleCode(String code) async {
+    return _guard(() async {
+      final normalizedCode = code.trim();
+      if (normalizedCode.isEmpty) {
+        throw ApiException('구글 로그인 코드가 없습니다.');
+      }
+
+      final authToken = await _authApi.exchangeGoogleCode(
+        GoogleTokenExchangeRequest(normalizedCode),
+      );
+      _ensureValidTokenResponse(authToken);
+
+      await _storage.saveAuthTokens(
+        accessToken: authToken.accessToken,
+        refreshToken: authToken.refreshToken,
+      );
+      await _storage.clearApiTokens();
+
+      final email = _emailFromJwt(authToken.accessToken);
+      await _syncLocalApiTokenFallback(email: email);
+      return authToken;
+    });
+  }
+
   Future<TokenResponse?> refreshToken() async {
     final refreshToken = await _storage.readAuthRefreshToken();
     if (refreshToken == null || refreshToken.isEmpty) return null;
     return _guard(() async {
       final authToken = await _authApi.refresh(RefreshRequest(refreshToken));
+      _ensureValidTokenResponse(authToken);
       await _storage.saveAuthTokens(
         accessToken: authToken.accessToken,
         refreshToken: authToken.refreshToken,
       );
-      await _syncLocalApiTokenFallback();
+      await _syncLocalApiTokenFallback(
+        email: _emailFromJwt(authToken.accessToken),
+      );
       return authToken;
     });
   }
@@ -100,9 +131,10 @@ class AuthRepository {
             (apiToken == null || apiToken.isEmpty)) {
           rethrow;
         }
+        final email = _emailFromJwt(authToken ?? '');
         return <String, dynamic>{
-          'email': null,
-          'nickname': null,
+          'email': email,
+          'nickname': email == null ? null : _nicknameFromEmail(email),
           'avatar_color': 0xFFFF8C42,
         };
       }
@@ -160,6 +192,28 @@ class AuthRepository {
     final raw = email.trim();
     if (raw.isEmpty) return '사용자';
     return raw.split('@').first;
+  }
+
+  void _ensureValidTokenResponse(TokenResponse response) {
+    if (response.accessToken.trim().isEmpty ||
+        response.refreshToken.trim().isEmpty) {
+      throw ApiException('서버에서 유효한 로그인 토큰을 받지 못했습니다.');
+    }
+  }
+
+  String? _emailFromJwt(String token) {
+    try {
+      final parts = token.split('.');
+      if (parts.length != 3) return null;
+      final normalized = base64Url.normalize(parts[1]);
+      final payload = jsonDecode(utf8.decode(base64Url.decode(normalized)));
+      if (payload is! Map) return null;
+      final subject = payload['sub'];
+      if (subject is! String || subject.trim().isEmpty) return null;
+      return subject.trim();
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<T> _guard<T>(Future<T> Function() run) async {

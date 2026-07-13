@@ -1,16 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
 
 class MainRouteBackScope extends StatefulWidget {
   const MainRouteBackScope({
     required this.child,
     this.onBackPressed,
+    this.backToHomeWhenUnhandled = false,
     this.exitMessage = '한 번 더 뒤로가기 누르면 앱이 종료됩니다.',
     super.key,
   });
 
   final Widget child;
   final bool Function()? onBackPressed;
+  final bool backToHomeWhenUnhandled;
   final String exitMessage;
 
   @override
@@ -23,6 +26,11 @@ class _MainRouteBackScopeState extends State<MainRouteBackScope> {
   void _handleBackPressed() {
     final handled = widget.onBackPressed?.call() ?? false;
     if (handled) return;
+
+    if (widget.backToHomeWhenUnhandled) {
+      context.go('/home');
+      return;
+    }
 
     final now = DateTime.now();
     final shouldExit = _lastBackPressedAt != null &&
