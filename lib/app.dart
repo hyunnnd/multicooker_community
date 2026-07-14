@@ -8,6 +8,9 @@ import 'core/router/app_router.dart';
 import 'core/widgets/global_cooker_overlay.dart';
 import 'features/auth/data/google_auth_callback.dart';
 import 'features/auth/provider/auth_provider.dart';
+import 'features/community/provider/community_provider.dart';
+import 'features/profile/provider/profile_provider.dart';
+import 'features/recipe/provider/recipe_provider.dart';
 
 class GrapheneMultiCookerApp extends StatefulWidget {
   const GrapheneMultiCookerApp({super.key});
@@ -25,6 +28,9 @@ class _GrapheneMultiCookerAppState extends State<GrapheneMultiCookerApp> {
 
   StreamSubscription<Uri>? _linkSubscription;
   bool _googleCallbackInProgress = false;
+  bool _accountScopeInitialized = false;
+  String? _activeAccountEmail;
+  bool _activeLocalApiReady = false;
 
   @override
   void initState() {
@@ -102,6 +108,37 @@ class _GrapheneMultiCookerAppState extends State<GrapheneMultiCookerApp> {
     };
   }
 
+  void _syncAccountScopedState(AuthProvider auth) {
+    final nextEmail = auth.isAuthenticated
+        ? auth.currentEmail?.trim().toLowerCase()
+        : null;
+    final accountChanged =
+        !_accountScopeInitialized || _activeAccountEmail != nextEmail;
+    final localReadinessChanged =
+        !accountChanged && _activeLocalApiReady != auth.localApiReady;
+    if (!accountChanged && !localReadinessChanged) return;
+
+    _accountScopeInitialized = true;
+    _activeAccountEmail = nextEmail;
+    _activeLocalApiReady = auth.localApiReady;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (accountChanged) {
+        context.read<RecipeProvider>().resetForAccountChange();
+        context.read<ProfileProvider>().resetForAccountChange();
+        context.read<CommunityProvider>().resetForAccountChange();
+      }
+      if (nextEmail != null &&
+          nextEmail.isNotEmpty &&
+          auth.localApiReady) {
+        unawaited(context.read<RecipeProvider>().loadRecipes());
+        unawaited(context.read<ProfileProvider>().loadOverview());
+        unawaited(context.read<CommunityProvider>().load(silent: true));
+      }
+    });
+  }
+
   void _showMessage(String message) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final messenger = _messengerKey.currentState;
@@ -120,6 +157,8 @@ class _GrapheneMultiCookerAppState extends State<GrapheneMultiCookerApp> {
 
   @override
   Widget build(BuildContext context) {
+    final auth = context.watch<AuthProvider>();
+    _syncAccountScopedState(auth);
     return MaterialApp.router(
       debugShowCheckedModeBanner: false,
       scaffoldMessengerKey: _messengerKey,

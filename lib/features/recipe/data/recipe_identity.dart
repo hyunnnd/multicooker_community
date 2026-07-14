@@ -1,14 +1,18 @@
 import 'dart:convert';
 
-String companyRecipeClientId(Map<String, dynamic> json, int index) {
+/// Returns the stable client-side id for a recipe stored in the personal API.
+///
+/// The local FastAPI uses numeric recipe ids, so the raw id is kept as-is.
+/// A title-derived fallback is used only for legacy responses without an id.
+String personalRecipeClientId(Map<String, dynamic> json, int index) {
   final rawId = json['id'] ?? json['recipe_id'] ?? json['recipeId'];
   if (rawId != null && rawId.toString().trim().isNotEmpty) {
-    return 'company-${rawId.toString().trim()}';
+    return rawId.toString().trim();
   }
 
   final title = (json['title'] ?? json['name'] ?? 'recipe-$index').toString().trim();
   final encoded = base64Url.encode(utf8.encode(title)).replaceAll('=', '');
-  return 'company-title-$encoded';
+  return 'local-title-$encoded';
 }
 
 List<Map<String, dynamic>> recipeMapsFromResponse(Object? data) {

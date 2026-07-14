@@ -10,6 +10,7 @@ class _CommunityList extends StatelessWidget {
     required this.onWriteTap,
     required this.onWriteReviewTap,
     required this.onNotificationTap,
+    required this.onAdminTap,
     required this.onRecipeTap,
   });
 
@@ -21,6 +22,7 @@ class _CommunityList extends StatelessWidget {
   final VoidCallback onWriteTap;
   final VoidCallback onWriteReviewTap;
   final VoidCallback onNotificationTap;
+  final VoidCallback onAdminTap;
   final ValueChanged<String> onRecipeTap;
 
   @override
@@ -40,6 +42,7 @@ class _CommunityList extends StatelessWidget {
               searchController: searchController,
               onSearchToggle: onSearchToggle,
               onNotificationTap: onNotificationTap,
+              onAdminTap: onAdminTap,
             ),
             Expanded(
               child: RefreshIndicator(
@@ -106,16 +109,20 @@ class _CommunityHeader extends StatelessWidget {
     required this.searchController,
     required this.onSearchToggle,
     required this.onNotificationTap,
+    required this.onAdminTap,
   });
 
   final bool showSearch;
   final TextEditingController searchController;
   final ValueChanged<bool> onSearchToggle;
   final VoidCallback onNotificationTap;
+  final VoidCallback onAdminTap;
 
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<CommunityProvider>();
+    final profile = context.watch<ProfileProvider>();
+    final isAdmin = profile.summary?.isAdmin == true || provider.isAdmin;
 
     return Container(
       color: Colors.white,
@@ -175,6 +182,19 @@ class _CommunityHeader extends StatelessWidget {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
+                      if (isAdmin) ...[
+                        Tooltip(
+                          message: '커뮤니티 관리자',
+                          child: GestureDetector(
+                            onTap: onAdminTap,
+                            child: const Padding(
+                              padding: EdgeInsets.all(4),
+                              child: Icon(Icons.admin_panel_settings_outlined, size: 21, color: _orangeText),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 7),
+                      ],
                       GestureDetector(
                         onTap: onNotificationTap,
                         child: Stack(
@@ -318,7 +338,7 @@ class _PostCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final popular = post.likes >= 100;
+    final popular = post.isPopular;
     final liked = post.isLiked || context.watch<CommunityProvider>().likedPostIds.contains(post.id);
 
     return Material(
@@ -382,8 +402,15 @@ class _PostCard extends StatelessWidget {
                     onTap: onLike,
                   ),
                   const SizedBox(width: 16),
-                  _SmallActionIcon(icon: Icons.mode_comment_outlined, label: '${post.comments.length}', color: _gray400),
-
+                  _SmallActionIcon(icon: Icons.mode_comment_outlined, label: '${post.commentCount}', color: _gray400),
+                  if (post.reportCount != null && post.reportCount! > 0) ...[
+                    const SizedBox(width: 16),
+                    _SmallActionIcon(
+                      icon: Icons.flag_outlined,
+                      label: '신고 ${post.reportCount}',
+                      color: _red,
+                    ),
+                  ],
                 ],
               ),
             ],

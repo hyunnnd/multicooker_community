@@ -26,6 +26,7 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _requested = false;
+  bool _retryingLocalApi = false;
 
   @override
   void didChangeDependencies() {
@@ -40,6 +41,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _logout(BuildContext context) async {
     await context.read<AuthProvider>().logout();
     if (context.mounted) context.go('/login');
+  }
+
+  Future<void> _retryLocalApi() async {
+    if (_retryingLocalApi) return;
+    setState(() => _retryingLocalApi = true);
+    final ok = await context.read<AuthProvider>().retryLocalApiSession();
+    if (!mounted) return;
+    if (ok) {
+      await context.read<ProfileProvider>().loadOverview();
+    }
+    if (!mounted) return;
+    setState(() => _retryingLocalApi = false);
   }
 
   @override
@@ -112,7 +125,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       const SizedBox(height: 14),
                       Row(
                         children: [
-                          _StatBox(label: '레시피', value: '${profile.myRecipes.length}', onTap: () => context.push('/my/recipes')),
+                          _StatBox(label: '레시피', value: '${summary?.recipeCount ?? 0}', onTap: () => context.push('/my/recipes')),
                           const SizedBox(width: 8),
                           _StatBox(label: '후기', value: '${profile.reviews.length}', onTap: () => context.push('/my/reviews')),
                           const SizedBox(width: 8),
@@ -122,6 +135,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ],
                   ),
                 ),
+                if (!auth.localApiReady)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                    child: Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFF7ED),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFFFED7AA)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.cloud_off_outlined, color: _orange),
+                          const SizedBox(width: 10),
+                          const Expanded(
+                            child: Text(
+                              '개인 API 로그인 정보를 복구하는 중입니다. 데이터가 보이지 않으면 다시 연결해 주십시오.',
+                              style: TextStyle(fontSize: 12, color: _gray800),
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: _retryingLocalApi ? null : _retryLocalApi,
+                            child: _retryingLocalApi
+                                ? const SizedBox.square(
+                                    dimension: 16,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  )
+                                : const Text('다시 연결'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 if (profile.isLoading && summary == null)
                   const Padding(
                     padding: EdgeInsets.all(24),
@@ -208,343 +254,350 @@ class _MenuTile extends StatelessWidget {
       );
 }
 
-class AppPreferencesScreen extends StatefulWidget {
-  const AppPreferencesScreen({super.key});
+class AppSettingsScreen extends StatefulWidget {
+  const AppSettingsScreen({super.key});
 
   @override
-  State<AppPreferencesScreen> createState() => _AppPreferencesScreenState();
+  State<AppSettingsScreen> createState() => _AppSettingsScreenState();
 }
 
-class _AppPreferencesScreenState extends State<AppPreferencesScreen> {
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) context.read<ProfileProvider>().loadPreferences();
-    });
+class _AppSettingsScreenState extends State<AppSettingsScreen> {
+  var _notifications = true;
+  var _cookingAlerts = true;
+  var _autoReconnect = true;
+
+  Future<void> _logout(BuildContext context) async {
+    await context.read<AuthProvider>().logout();
+    if (context.mounted) context.go('/login');
   }
 
   @override
   Widget build(BuildContext context) {
-    final profile = context.watch<ProfileProvider>();
-    final settings = profile.settings;
+    final auth = context.watch<AuthProvider>();
+    final lang = context.watch<LanguageProvider>();
     return Scaffold(
       backgroundColor: _bg,
       appBar: AppBar(
-        title: const Text('설정', style: TextStyle(fontWeight: FontWeight.w900)),
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.white,
+        leading: const AppBackButton(),
+        title: Text(lang.t('설정', 'Settings')),
       ),
-      body: RefreshIndicator(
-        onRefresh: profile.loadPreferences,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            if (profile.errorMessage != null)
-              _SettingsError(message: profile.errorMessage!),
-            const _SettingsSectionTitle('알림'),
-            _SettingsCard(
-              child: Column(
-                children: [
-                  SwitchListTile(
-                    title: const Text('조리 알림'),
-                    subtitle: const Text('조리 시작, 단계 변경, 완료 알림'),
-                    value: settings.cookingNotification,
-                    onChanged: profile.isSaving
-                        ? null
-                        : (value) => profile.updateSettings(
-                              settings.copyWith(cookingNotification: value),
-                            ),
-                  ),
-                  const Divider(height: 1),
-                  SwitchListTile(
-                    title: const Text('커뮤니티 알림'),
-                    subtitle: const Text('좋아요, 댓글, 답글 알림'),
-                    value: settings.communityNotification,
-                    onChanged: profile.isSaving
-                        ? null
-                        : (value) => profile.updateSettings(
-                              settings.copyWith(communityNotification: value),
-                            ),
-                  ),
-                  const Divider(height: 1),
-                  SwitchListTile(
-                    title: const Text('이벤트 알림'),
-                    subtitle: const Text('새 소식 및 이벤트 알림'),
-                    value: settings.marketingNotification,
-                    onChanged: profile.isSaving
-                        ? null
-                        : (value) => profile.updateSettings(
-                              settings.copyWith(marketingNotification: value),
-                            ),
-                  ),
-                ],
+      bottomNavigationBar: const MainNavigationBar(currentIndex: 4),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          _Section(
+            title: lang.t('언어', 'Language'),
+            children: [
+              _LanguageTile(
+                label: '한국어',
+                selected: !lang.isEnglish,
+                onTap: () => lang.setEnglish(false),
               ),
-            ),
-            const SizedBox(height: 20),
-            const _SettingsSectionTitle('언어'),
-            _SettingsCard(
-              child: Column(
-                children: [
-                  ListTile(
-                    title: const Text('한국어'),
-                    trailing: settings.language == 'ko'
-                        ? const Icon(Icons.check, color: _orange)
-                        : null,
-                    onTap: () => _setLanguage(context, 'ko'),
-                  ),
-                  const Divider(height: 1),
-                  ListTile(
-                    title: const Text('English'),
-                    trailing: settings.language == 'en'
-                        ? const Icon(Icons.check, color: _orange)
-                        : null,
-                    onTap: () => _setLanguage(context, 'en'),
-                  ),
-                ],
+              _LanguageTile(
+                label: 'English',
+                selected: lang.isEnglish,
+                onTap: () => lang.setEnglish(true),
               ),
-            ),
-            const SizedBox(height: 20),
-            const _SettingsSectionTitle('기기'),
-            _SettingsCard(
-              child: Column(
-                children: [
-                  if (profile.devices.isEmpty)
-                    const ListTile(
-                      title: Text('등록된 기기 없음'),
-                      subtitle: Text('쿠커 화면에서 연결하면 등록됩니다.'),
-                    )
-                  else
-                    for (final device in profile.devices) ...[
-                      ListTile(
-                        title: Text(
-                          device.displayName,
-                          style: const TextStyle(fontWeight: FontWeight.w800),
-                        ),
-                        subtitle: Text(
-                          '${device.macAddress}\n최근 연결: ${_settingsFormatDate(device.lastConnectedAt)}',
-                        ),
-                        isThreeLine: true,
-                        trailing: Switch(
-                          value: device.autoReconnect,
-                          onChanged: (value) => profile
-                              .toggleDeviceAutoReconnect(device, value),
-                        ),
-                        onTap: () => _editDeviceAlias(context, device),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _Section(
+            title: lang.t('계정', 'Account'),
+            children: [
+              _InfoTile(
+                icon: Icons.person_outline,
+                title: auth.isAuthenticated ? 'GrapheneUser' : 'Guest',
+                subtitle: auth.isAuthenticated
+                    ? lang.t('로그인됨', 'Signed in')
+                    : lang.t('로그인이 필요합니다', 'Sign in required'),
+              ),
+              _ActionTile(
+                icon: Icons.login_rounded,
+                title: auth.isAuthenticated
+                    ? lang.t('인증 상태 확인', 'Check Verification')
+                    : lang.t('로그인', 'Sign in'),
+                subtitle: auth.isAuthenticated
+                    ? lang.t(
+                        '현재 계정 인증 상태가 유효합니다',
+                        'Your account session is valid',
+                      )
+                    : lang.t(
+                        '이메일 또는 Google 계정으로 로그인',
+                        'Sign in with email or Google',
                       ),
-                      const Divider(height: 1),
-                    ],
-                  ListTile(
-                    leading: const Icon(Icons.bluetooth_searching),
-                    title: const Text('쿠커 검색 및 연결'),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () => context.go('/device'),
-                  ),
-                ],
+                onTap: () => auth.isAuthenticated
+                    ? _message(lang.t('현재 로그인 상태입니다.', 'You are signed in.'))
+                    : context.go('/login'),
               ),
-            ),
-            const SizedBox(height: 20),
-            const _SettingsSectionTitle('계정'),
-            _SettingsCard(
-              child: Column(
-                children: [
-                  ListTile(
-                    title: const Text('닉네임 변경'),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () => _editNickname(context),
-                  ),
-                  const Divider(height: 1),
-                  ListTile(
-                    title: const Text('비밀번호 재설정'),
-                    subtitle: const Text('회사 계정 이메일 인증 후 변경합니다.'),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () => context.push('/reset'),
-                  ),
-                  const Divider(height: 1),
-                  ListTile(
-                    title: const Text(
-                      '앱 데이터 탈퇴',
-                      style: TextStyle(color: Color(0xFFDC2626)),
-                    ),
-                    subtitle: const Text('로컬 커뮤니티·마이페이지 데이터를 비활성화합니다.'),
-                    trailing: const Icon(
-                      Icons.chevron_right,
-                      color: Color(0xFFDC2626),
-                    ),
-                    onTap: () => _deleteLocalAccount(context),
-                  ),
-                ],
+              _ActionTile(
+                icon: Icons.verified_user_outlined,
+                title: lang.t('이메일 인증', 'Email Verification'),
+                subtitle: lang.t(
+                  '회원가입 이메일 인증을 다시 진행합니다',
+                  'Start the email verification flow',
+                ),
+                onTap: () => context.go('/register'),
               ),
-            ),
-            const SizedBox(height: 24),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _setLanguage(BuildContext context, String language) async {
-    final profile = context.read<ProfileProvider>();
-    final ok = await profile.updateSettings(
-      profile.settings.copyWith(language: language),
-    );
-    if (!context.mounted || !ok) return;
-    context.read<LanguageProvider>().setEnglish(language == 'en');
-  }
-
-  Future<void> _editNickname(BuildContext context) async {
-    final profile = context.read<ProfileProvider>();
-    final auth = context.read<AuthProvider>();
-    final controller = TextEditingController(
-      text: profile.summary?.nickname ?? auth.currentNickname ?? 'GrapheneUser',
-    );
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('닉네임 변경'),
-        content: TextField(
-          controller: controller,
-          maxLength: 20,
-          decoration: const InputDecoration(hintText: '닉네임 입력'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('취소'),
+              _ActionTile(
+                icon: Icons.lock_reset_rounded,
+                title: lang.t('암호 변경', 'Change Password'),
+                subtitle: lang.t(
+                  '인증코드로 비밀번호를 재설정합니다',
+                  'Reset your password with a verification code',
+                ),
+                onTap: () => context.go('/reset'),
+              ),
+              if (auth.isAuthenticated)
+                _ActionTile(
+                  icon: Icons.logout_rounded,
+                  title: lang.t('로그아웃', 'Sign out'),
+                  subtitle: lang.t('현재 계정에서 나갑니다', 'Sign out of this account'),
+                  danger: true,
+                  onTap: auth.isLoading ? null : () => _logout(context),
+                ),
+            ],
           ),
-          FilledButton(
-            onPressed: () async {
-              final value = controller.text.trim();
-              if (value.isEmpty) return;
-              final ok = await profile.updateNickname(value);
-              if (ok) auth.setLocalNickname(value);
-              if (dialogContext.mounted && ok) Navigator.pop(dialogContext);
-            },
-            child: const Text('저장'),
+          const SizedBox(height: 14),
+          _Section(
+            title: lang.t('앱 동작', 'App Behavior'),
+            children: [
+              _SwitchTile(
+                title: lang.t('알림', 'Notifications'),
+                subtitle: lang.t(
+                  '레시피와 커뮤니티 알림 받기',
+                  'Receive recipe and community notifications',
+                ),
+                value: _notifications,
+                onChanged: (value) => setState(() => _notifications = value),
+              ),
+              _SwitchTile(
+                title: lang.t('조리 알림', 'Cooking Alerts'),
+                subtitle: lang.t(
+                  '예열 완료와 조리 완료 알림 표시',
+                  'Show preheat and cooking completion alerts',
+                ),
+                value: _cookingAlerts,
+                onChanged: (value) => setState(() => _cookingAlerts = value),
+              ),
+              _SwitchTile(
+                title: lang.t('쿠커 자동 재연결', 'Auto Reconnect Cooker'),
+                subtitle: lang.t(
+                  '신호가 끊기면 자동으로 다시 연결 시도',
+                  'Try reconnecting when the signal is lost',
+                ),
+                value: _autoReconnect,
+                onChanged: (value) => setState(() => _autoReconnect = value),
+              ),
+            ],
           ),
-        ],
-      ),
-    );
-    controller.dispose();
-  }
-
-  Future<void> _editDeviceAlias(
-    BuildContext context,
-    RegisteredDeviceItem device,
-  ) async {
-    final controller = TextEditingController(text: device.alias);
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('기기 별칭 변경'),
-        content: TextField(
-          controller: controller,
-          decoration: InputDecoration(hintText: device.deviceName),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('취소'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              final ok = await context
-                  .read<ProfileProvider>()
-                  .updateDeviceAlias(device.id, controller.text.trim());
-              if (dialogContext.mounted && ok) Navigator.pop(dialogContext);
-            },
-            child: const Text('저장'),
+          const SizedBox(height: 14),
+          _Section(
+            title: lang.t('정보', 'About'),
+            children: [
+              const _InfoTile(
+                icon: Icons.info_outline,
+                title: 'Graphene Multi-Cooker',
+                subtitle: 'Prototype · v0.1',
+              ),
+              _InfoTile(
+                icon: Icons.policy_outlined,
+                title: lang.t('개인정보 및 약관', 'Privacy and Terms'),
+                subtitle: lang.t(
+                  '서비스 정책 문서 연결 예정',
+                  'Service policy documents will be linked later',
+                ),
+              ),
+            ],
           ),
         ],
       ),
     );
-    controller.dispose();
   }
 
-  Future<void> _deleteLocalAccount(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('앱 데이터 탈퇴'),
-        content: const Text(
-          '로컬 커뮤니티와 마이페이지 데이터가 비활성화됩니다. 회사 로그인 계정 자체는 삭제되지 않습니다.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('취소'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('탈퇴'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !context.mounted) return;
-    final ok = await context.read<ProfileProvider>().deleteAccount();
-    if (!ok || !context.mounted) return;
-    await context.read<AuthProvider>().logout();
-    if (context.mounted) context.go('/login');
+  void _message(String text) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
 }
 
-class _SettingsSectionTitle extends StatelessWidget {
-  const _SettingsSectionTitle(this.text);
-  final String text;
+class _Section extends StatelessWidget {
+  const _Section({required this.title, required this.children});
+  final String title;
+  final List<Widget> children;
 
   @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(left: 4, bottom: 8),
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
         child: Text(
-          text,
+          title,
           style: const TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w900,
             color: _gray900,
+            fontSize: 16,
+            fontWeight: FontWeight.w900,
           ),
         ),
-      );
-}
-
-class _SettingsCard extends StatelessWidget {
-  const _SettingsCard({required this.child});
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) => Container(
+      ),
+      Container(
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(18),
           border: Border.all(color: _gray100),
         ),
-        clipBehavior: Clip.antiAlias,
-        child: child,
-      );
+        child: Column(children: children),
+      ),
+    ],
+  );
 }
 
-class _SettingsError extends StatelessWidget {
-  const _SettingsError({required this.message});
-  final String message;
+class _LanguageTile extends StatelessWidget {
+  const _LanguageTile({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => Container(
-        margin: const EdgeInsets.only(bottom: 14),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: const Color(0xFFFFF1F2),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: const Color(0xFFFECACA)),
-        ),
-        child: Text(
-          message,
-          style: const TextStyle(color: Color(0xFFDC2626), fontSize: 12),
-        ),
-      );
+  Widget build(BuildContext context) {
+    final lang = context.watch<LanguageProvider>();
+    return _BaseTile(
+      icon: Icons.language_rounded,
+      title: label,
+      subtitle: selected
+          ? lang.t('선택됨', 'Selected')
+          : lang.t('탭하여 변경', 'Tap to change'),
+      trailing: selected
+          ? const Icon(Icons.check_circle_rounded, color: _orange)
+          : const Icon(Icons.radio_button_unchecked_rounded, color: _gray400),
+      onTap: onTap,
+    );
+  }
 }
 
-String _settingsFormatDate(String? iso) {
-  if (iso == null || iso.isEmpty) return '-';
-  final dt = DateTime.tryParse(iso)?.toLocal();
-  if (dt == null) return iso;
-  return '${dt.year}.${dt.month.toString().padLeft(2, '0')}.${dt.day.toString().padLeft(2, '0')} '
-      '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+class _ActionTile extends StatelessWidget {
+  const _ActionTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.danger = false,
+  });
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback? onTap;
+  final bool danger;
+
+  @override
+  Widget build(BuildContext context) => _BaseTile(
+    icon: icon,
+    title: title,
+    subtitle: subtitle,
+    color: danger ? const Color(0xFFEF4444) : _gray800,
+    trailing: const Icon(Icons.chevron_right_rounded, color: _gray400),
+    onTap: onTap,
+  );
+}
+
+class _InfoTile extends StatelessWidget {
+  const _InfoTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) =>
+      _BaseTile(icon: icon, title: title, subtitle: subtitle);
+}
+
+class _SwitchTile extends StatelessWidget {
+  const _SwitchTile({
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.onChanged,
+  });
+  final String title;
+  final String subtitle;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) => _BaseTile(
+    icon: Icons.tune_rounded,
+    title: title,
+    subtitle: subtitle,
+    trailing: Switch(value: value, activeColor: _orange, onChanged: onChanged),
+    onTap: () => onChanged(!value),
+  );
+}
+
+class _BaseTile extends StatelessWidget {
+  const _BaseTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    this.trailing,
+    this.onTap,
+    this.color = _gray800,
+  });
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Widget? trailing;
+  final VoidCallback? onTap;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: _bg,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: _orange, size: 20),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  subtitle,
+                  style: const TextStyle(color: _gray400, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          if (trailing != null) trailing!,
+        ],
+      ),
+    ),
+  );
 }

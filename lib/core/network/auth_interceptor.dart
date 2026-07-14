@@ -5,16 +5,32 @@ import '../storage/secure_token_storage.dart';
 
 enum TokenAudience { auth, api }
 
+class RecoveredTokenPair {
+  const RecoveredTokenPair({
+    required this.accessToken,
+    required this.refreshToken,
+  });
+
+  final String accessToken;
+  final String refreshToken;
+}
+
+typedef SessionRecovery = Future<RecoveredTokenPair?> Function();
+
 class AuthInterceptor extends Interceptor {
   AuthInterceptor(
     this._storage,
     this._refreshDio, {
     required this.audience,
+    this.recoverSession,
   });
 
   final SecureTokenStorage _storage;
   final Dio _refreshDio;
   final TokenAudience audience;
+  final SessionRecovery? recoverSession;
+
+  Future<RecoveredTokenPair?>? _recoveryInProgress;
 
   Future<String?> _readAccessToken() {
     return audience == TokenAudience.auth
@@ -58,41 +74,71 @@ class AuthInterceptor extends Interceptor {
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) async {
     if (err.response?.statusCode != 401 ||
-        err.requestOptions.extra['retry'] == true) {
+        err.requestOptions.extra['authRetry'] == true) {
       handler.next(err);
       return;
     }
 
+    RecoveredTokenPair? tokenPair;
     final refreshToken = await _readRefreshToken();
-    if (refreshToken == null || refreshToken.isEmpty) {
-      handler.next(err);
-      return;
+    if (refreshToken != null && refreshToken.isNotEmpty) {
+      try {
+        final refreshResponse = await _refreshDio.post(
+          ApiConstants.refresh,
+          data: {'refresh_token': refreshToken},
+        );
+        final data = Map<String, dynamic>.from(refreshResponse.data as Map);
+        final accessToken = (data['access_token'] ?? '').toString();
+        final nextRefreshToken = (data['refresh_token'] ?? '').toString();
+        if (accessToken.isNotEmpty && nextRefreshToken.isNotEmpty) {
+          tokenPair = RecoveredTokenPair(
+            accessToken: accessToken,
+            refreshToken: nextRefreshToken,
+          );
+        }
+      } catch (_) {
+        // The local refresh token may be missing from a previous build or may
+        // have been invalidated when the server restarted. The API audience
+        // gets one more chance by rebuilding its session from company auth.
+      }
     }
 
-    try {
-      final refreshResponse = await _refreshDio.post(
-        ApiConstants.refresh,
-        data: {'refresh_token': refreshToken},
-      );
-      final data = Map<String, dynamic>.from(refreshResponse.data as Map);
-      final accessToken = data['access_token'] as String;
-      final nextRefreshToken = data['refresh_token'] as String;
-      await _saveTokens(
-        accessToken: accessToken,
-        refreshToken: nextRefreshToken,
-      );
+    if (tokenPair == null &&
+        audience == TokenAudience.api &&
+        recoverSession != null) {
+      try {
+        final recoveryFuture = _recoveryInProgress ??=
+            recoverSession!().whenComplete(() {
+              _recoveryInProgress = null;
+            });
+        tokenPair = await recoveryFuture;
+      } catch (_) {
+        tokenPair = null;
+      }
+    }
 
-      final retryOptions = err.requestOptions;
-      retryOptions.extra['retry'] = true;
-      retryOptions.headers['Authorization'] = 'Bearer $accessToken';
-      final retryResponse = await _refreshDio.fetch(retryOptions);
-      handler.resolve(retryResponse);
-    } catch (_) {
+    if (tokenPair == null) {
       if (audience == TokenAudience.auth) {
         await _storage.clearAuthTokens();
       } else {
         await _storage.clearApiTokens();
       }
+      handler.next(err);
+      return;
+    }
+
+    try {
+      await _saveTokens(
+        accessToken: tokenPair.accessToken,
+        refreshToken: tokenPair.refreshToken,
+      );
+      final retryOptions = err.requestOptions;
+      retryOptions.extra['authRetry'] = true;
+      retryOptions.headers['Authorization'] =
+          'Bearer ${tokenPair.accessToken}';
+      final retryResponse = await _refreshDio.fetch(retryOptions);
+      handler.resolve(retryResponse);
+    } catch (_) {
       handler.next(err);
     }
   }

@@ -63,7 +63,7 @@ class _AiIngredientScanScreenState extends State<AiIngredientScanScreen> {
         leading: const AppBackButton(),
         title: const Text('AI 식재료 인식'),
       ),
-      bottomNavigationBar: const MainNavigationBar(currentIndex: -1),
+      bottomNavigationBar: const MainNavigationBar(currentIndex: 0),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(20),

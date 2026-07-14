@@ -216,3 +216,22 @@ flutter run --dart-define=AUTH_API_BASE_URL=http://3.36.14.110:8000 --dart-defin
 로컬 FastAPI 서버가 꺼져 있으면 커뮤니티 DB 저장/조회, 알림, 좋아요, 댓글, 레시피 API, AI 업로드는 실패하거나 fallback 화면만 보입니다.
 이미 앱에 저장된 화면 asset과 일부 mock 레시피는 표시될 수 있습니다.
 ```
+
+## 9. 레시피별 후기·댓글
+
+레시피 상세 화면의 `후기 · 댓글` 영역은 개인 FastAPI 서버와 SQLite DB를 사용합니다.
+
+```text
+GET    /community/reviews?recipe_id={recipe_id}
+POST   /community/reviews
+GET    /community/recipes/{recipe_id}/comments
+POST   /community/recipes/{recipe_id}/comments
+PATCH  /community/recipe-comments/{comment_id}
+DELETE /community/recipe-comments/{comment_id}
+```
+
+후기는 기존 `recipereview` 테이블에 레시피 ID별로 저장되고, 레시피 댓글은 `recipecomment` 테이블에 저장됩니다. 본인이 작성한 레시피 댓글만 수정·삭제할 수 있습니다. 조리 완료 화면의 `후기 작성` 버튼을 누르면 완료한 레시피의 ID, 제목, 이미지와 선택한 별점이 후기 작성 화면에 자동으로 전달됩니다.
+
+## 기본 레시피 DB 조회
+
+Flutter의 기본 레시피 목록은 더 이상 `RecipeMockData`를 사용하지 않고 개인 FastAPI의 `GET /recipes`를 통해 SQLite에서 조회합니다. 서버 시작 시 기존 DB에 7개 기본 레시피가 자동 동기화됩니다. 자세한 내용은 `RECIPE_CATALOG_DB_NOTE.md`를 참고하십시오.

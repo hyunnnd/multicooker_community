@@ -4,10 +4,9 @@ import '../../recipe/data/recipe_identity.dart';
 import 'profile_models.dart';
 
 class ProfileRepository {
-  ProfileRepository(this._localDio, this._companyDio);
+  ProfileRepository(this._localDio);
 
   final Dio _localDio;
-  final Dio _companyDio;
 
   Future<ProfileSummary> fetchSummary() async {
     final response = await _localDio.get<Map<String, dynamic>>('/users/me');
@@ -62,51 +61,6 @@ class ProfileRepository {
       response.data?['settings'] as Map? ?? const {},
     );
     return ProfileSettings.fromJson(data);
-  }
-
-  /// 회사 서버에 로그인한 사용자가 직접 업로드한 개인 레시피입니다.
-  Future<List<ProfileRecipeItem>> fetchMyRecipes() async {
-    final response = await _companyDio.get<Object>(
-      '/recipe/personal_recipes/100',
-    );
-    final items = recipeMapsFromResponse(response.data);
-    return [
-      for (var index = 0; index < items.length; index++)
-        _companyRecipeItem(items[index], index),
-    ];
-  }
-
-  Future<ProfileRecipeItem> createMyRecipe({
-    required String title,
-    required String description,
-    required List<Map<String, dynamic>> steps,
-  }) async {
-    await _companyDio.post<Object>(
-      '/recipe/upload',
-      data: {
-        'title': title,
-        'description': description,
-        'steps': steps,
-      },
-    );
-    final recipes = await fetchMyRecipes();
-    for (final recipe in recipes) {
-      if (recipe.title == title) return recipe;
-    }
-    return ProfileRecipeItem(
-      id: 'company-title-${Uri.encodeComponent(title)}',
-      title: title,
-      description: description,
-      author: '나의 레시피',
-      totalTimeMin: _totalMinutesFromSteps(steps),
-      maxTemperature: _maxTemperatureFromSteps(steps),
-      isPersonal: true,
-    );
-  }
-
-  /// 현재 회사 서버에는 개인 레시피 삭제 API가 없으므로 호출하지 않습니다.
-  Future<void> deleteMyRecipe(String recipeId) async {
-    throw UnsupportedError('회사 서버에서 개인 레시피 삭제 API를 지원하지 않습니다.');
   }
 
   Future<List<ProfileRecipeItem>> fetchSavedRecipes() async {
@@ -203,11 +157,7 @@ class ProfileRepository {
     DateTime? finishedAt,
   }) async {
     final rawRecipeId = recipeId?.trim();
-    final companyNumericId = rawRecipeId != null &&
-            rawRecipeId.startsWith('company-')
-        ? int.tryParse(rawRecipeId.substring('company-'.length))
-        : null;
-    final parsedRecipeId = int.tryParse(rawRecipeId ?? '') ?? companyNumericId;
+    final parsedRecipeId = _numericRecipeId(rawRecipeId);
     final response = await _localDio.post<Map<String, dynamic>>(
       '/users/me/cooking-histories',
       data: {
@@ -249,8 +199,8 @@ class ProfileRepository {
     );
   }
 
-  /// 조리 이력을 회사 개인 레시피 DB에 다시 등록합니다.
-  Future<ProfileRecipeItem> saveHistoryAsRecipe(int historyId) async {
+  /// 조리 이력을 현재 로그인 사용자의 개인 레시피로 등록합니다.
+  Future<void> saveHistoryAsRecipe(int historyId) async {
     final historyResponse = await _localDio.get<Map<String, dynamic>>(
       '/users/me/cooking-histories/$historyId',
     );
@@ -266,7 +216,10 @@ class ProfileRepository {
           return <String, dynamic>{
             'temperature': numberAsDouble(
               step['temperature'] ?? step['temp'],
-              fallback: numberAsDouble(history['max_temperature'], fallback: 180),
+              fallback: numberAsDouble(
+                history['max_temperature'],
+                fallback: 180,
+              ),
             ),
             'time_offset': numberAsDouble(
               step['time_offset'] ?? step['timeOffset'] ?? step['seconds'],
@@ -281,32 +234,20 @@ class ProfileRepository {
           fallback: 180,
         ),
         'time_offset': numberAsDouble(
-          history['total_time_min'],
-          fallback: 10,
-        ) * 60,
+              history['total_time_min'],
+              fallback: 10,
+            ) *
+            60,
       });
     }
 
-    await _companyDio.post<Object>(
+    await _localDio.post<Map<String, dynamic>>(
       '/recipe/upload',
       data: {
         'title': title,
         'description': '조리 이력에서 저장한 레시피입니다.',
         'steps': steps,
       },
-    );
-    final recipes = await fetchMyRecipes();
-    for (final recipe in recipes) {
-      if (recipe.title == title) return recipe;
-    }
-    return ProfileRecipeItem(
-      id: 'company-title-${Uri.encodeComponent(title)}',
-      title: title,
-      description: '조리 이력에서 저장한 레시피입니다.',
-      author: '나의 레시피',
-      totalTimeMin: _totalMinutesFromSteps(steps),
-      maxTemperature: _maxTemperatureFromSteps(steps),
-      isPersonal: true,
     );
   }
 
@@ -346,50 +287,16 @@ class ProfileRepository {
     await _localDio.delete<void>('/users/me/devices/$deviceId');
   }
 
-  ProfileRecipeItem _companyRecipeItem(
-    Map<String, dynamic> json,
-    int index,
-  ) {
-    final steps = recipeStepsFromJson(json);
-    return ProfileRecipeItem(
-      id: companyRecipeClientId(json, index),
-      title: (json['title'] ?? json['name'] ?? '이름 없는 레시피').toString(),
-      description: (json['description'] ?? '').toString(),
-      author: (json['author'] ?? json['nickname'] ?? '나의 레시피').toString(),
-      totalTimeMin: _totalMinutesFromSteps(steps),
-      maxTemperature: _maxTemperatureFromSteps(steps),
-      thumbnailUrl: _nullableString(
-        json['thumbnail_url'] ?? json['image_url'] ?? json['image'],
-      ),
-      createdAt: _nullableString(json['created_at']),
-      isOfficial: false,
-      isPersonal: true,
-    );
-  }
-
-  int _totalMinutesFromSteps(List<Map<String, dynamic>> steps) {
-    if (steps.isEmpty) return 10;
-    final offsets = steps
-        .map(
-          (step) => numberAsDouble(
-            step['time_offset'] ?? step['timeOffset'] ?? step['seconds'],
-          ),
-        )
-        .toList(growable: false);
-    final maxOffset = offsets.fold<double>(0, (max, value) => value > max ? value : max);
-    if (maxOffset > 0) return (maxOffset / 60).ceil().clamp(1, 999).toInt();
-    return steps.length * 5;
-  }
-
-  int _maxTemperatureFromSteps(List<Map<String, dynamic>> steps) {
-    var maxTemperature = 0;
-    for (final step in steps) {
-      final temperature = numberAsInt(
-        step['temperature'] ?? step['temp'],
-      );
-      if (temperature > maxTemperature) maxTemperature = temperature;
+  int? _numericRecipeId(String? recipeId) {
+    final value = recipeId?.trim() ?? '';
+    final direct = int.tryParse(value);
+    if (direct != null) return direct;
+    for (final prefix in const ['local-', 'company-']) {
+      if (value.startsWith(prefix)) {
+        return int.tryParse(value.substring(prefix.length));
+      }
     }
-    return maxTemperature <= 0 ? 180 : maxTemperature;
+    return null;
   }
 
   String? _nullableString(Object? value) {

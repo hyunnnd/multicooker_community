@@ -1,0 +1,7 @@
+{
+  "id": "toque-cooking-pet",
+  "displayName": "Toque",
+  "description": "조리 기기 상태를 알려주는 요리 앱 전용 오렌지색 슬라임 셰프 마스코트",
+  "spriteVersionNumber": 2,
+  "spritesheetPath": "spritesheet.webp"
+}

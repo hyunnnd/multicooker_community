@@ -10,6 +10,7 @@ class ProfileSummary {
     required this.cookingHistoryCount,
     required this.savedRecipeCount,
     required this.deviceCount,
+    this.isAdmin = false,
   });
 
   final int id;
@@ -22,6 +23,7 @@ class ProfileSummary {
   final int cookingHistoryCount;
   final int savedRecipeCount;
   final int deviceCount;
+  final bool isAdmin;
 
   factory ProfileSummary.fromJson(Map<String, dynamic> json) => ProfileSummary(
         id: _asInt(json['id']),
@@ -34,6 +36,7 @@ class ProfileSummary {
         cookingHistoryCount: _asInt(json['cooking_history_count']),
         savedRecipeCount: _asInt(json['saved_recipe_count']),
         deviceCount: _asInt(json['device_count']),
+        isAdmin: _asBool(json['is_admin']),
       );
 }
 

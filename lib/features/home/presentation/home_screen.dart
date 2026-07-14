@@ -29,7 +29,7 @@ class HomeScreen extends StatelessWidget {
     return MainRouteBackScope(
       child: Scaffold(
         backgroundColor: figmaBg,
-        bottomNavigationBar: const MainNavigationBar(currentIndex: 0),
+        bottomNavigationBar: const MainNavigationBar(currentIndex: 2),
         body: SafeArea(
           child: ListView(
             padding: const EdgeInsets.only(bottom: 16),

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
@@ -22,6 +23,65 @@ class AuthRepository {
   Future<bool> hasAccessToken() async {
     final token = await _storage.readAuthAccessToken();
     return token != null && token.isNotEmpty;
+  }
+
+  /// Restores the current company account.
+  ///
+  /// The deployed company server currently issues JWTs from `/auth/login` and
+  /// `/auth/google/token`, but it does not expose `/auth/me`. Older app builds
+  /// treated that expected 404 response as a failed login and displayed
+  /// `Not Found` even though token issuance and local API synchronization had
+  /// already succeeded. When `/auth/me` is unavailable, recover the account
+  /// email from the verified company JWT (`sub`) instead.
+  ///
+  /// A real 401 response is still propagated so an invalid/expired session is
+  /// not mistaken for a valid login.
+  Future<Map<String, dynamic>> restoreCompanyProfile() async {
+    try {
+      return await _guard(() => _authApi.me());
+    } on ApiException catch (error) {
+      if (error.statusCode != 404 && error.statusCode != 405) rethrow;
+      return _profileFromStoredCompanyToken();
+    }
+  }
+
+  /// Ensures that the local SQLite API token belongs to the same company
+  /// account and is usable. Existing tokens are not deleted before a successful
+  /// replacement, so a transient startup/network failure no longer leaves the
+  /// app permanently authenticated without community/profile data.
+  Future<void> ensureLocalApiSession({
+    Map<String, dynamic>? companyProfile,
+  }) async {
+    final profile = companyProfile ?? await restoreCompanyProfile();
+    final email = _readString(profile, ['email'])?.toLowerCase();
+    if (email == null || email.isEmpty) {
+      throw ApiException('로그인 계정의 이메일 정보를 확인할 수 없습니다.');
+    }
+
+    final storedEmail =
+        (await _storage.readApiAccountEmail())?.trim().toLowerCase();
+    var apiToken = await _storage.readApiAccessToken();
+    if (apiToken != null && apiToken.isNotEmpty && storedEmail != email) {
+      // Tokens created by older builds did not record their account email.
+      // Clear those too rather than risking data from a previous account.
+      await _storage.clearApiTokens();
+      apiToken = null;
+    }
+
+    final accountMatches = storedEmail == email;
+    if (accountMatches && apiToken != null && apiToken.isNotEmpty) {
+      try {
+        final localProfile = await _guard(() => _localAuthApi.me());
+        final localEmail =
+            _readString(localProfile, ['email'])?.trim().toLowerCase();
+        if (localEmail == email) return;
+      } catch (_) {
+        // The refresh/recovery interceptor may already have tried. A direct
+        // sync below is the final startup recovery path.
+      }
+    }
+
+    await _syncLocalApiTokenWithRetry(profile, fallbackEmail: email);
   }
 
   Future<void> sendRegisterEmailCode(String email) =>
@@ -120,43 +180,73 @@ class AuthRepository {
     }
   }
 
+  Future<void> clearStoredSession() => _storage.clear();
+
   Future<Map<String, dynamic>> me() async {
-    return _guard(() async {
-      try {
-        return await _authApi.me();
-      } catch (_) {
-        final authToken = await _storage.readAuthAccessToken();
-        final apiToken = await _storage.readApiAccessToken();
-        if ((authToken == null || authToken.isEmpty) &&
-            (apiToken == null || apiToken.isEmpty)) {
-          rethrow;
-        }
-        final email = _emailFromJwt(authToken ?? '');
-        return <String, dynamic>{
-          'email': email,
-          'nickname': email == null ? null : _nicknameFromEmail(email),
-          'avatar_color': 0xFFFF8C42,
-        };
-      }
-    });
+    try {
+      return await restoreCompanyProfile();
+    } on ApiException catch (error) {
+      // Keep a previously authenticated session usable during a temporary
+      // company-server/network failure, but never mask an explicit 401.
+      if (error.statusCode == 401) rethrow;
+      return _profileFromStoredCompanyToken();
+    } catch (_) {
+      return _profileFromStoredCompanyToken();
+    }
+  }
+
+  Future<Map<String, dynamic>> _profileFromStoredCompanyToken() async {
+    final authToken = await _storage.readAuthAccessToken();
+    final email = _emailFromJwt(authToken ?? '');
+    if (email == null || email.isEmpty) {
+      throw ApiException('로그인 토큰에서 계정 정보를 확인할 수 없습니다.');
+    }
+    return <String, dynamic>{
+      'email': email,
+      'nickname': _nicknameFromEmail(email),
+      'avatar_color': 0xFFFF8C42,
+    };
   }
 
   Future<void> _syncLocalApiTokenFallback({String? email}) async {
     try {
       final profile = await _authApi.me();
-      await _syncLocalApiToken(profile, fallbackEmail: email);
+      await _syncLocalApiTokenWithRetry(profile, fallbackEmail: email);
     } catch (_) {
       if (email == null || email.trim().isEmpty) return;
       try {
-        await _syncLocalApiToken({
+        await _syncLocalApiTokenWithRetry({
           'email': email,
           'nickname': _nicknameFromEmail(email),
         });
       } catch (_) {
-        // Login should still succeed when the local DB server is unavailable.
-        // Community/recipe DB features will show their own server error later.
+        // Company login remains usable when the personal API is temporarily
+        // offline. Startup and the API interceptor retry this synchronization.
       }
     }
+  }
+
+  Future<void> _syncLocalApiTokenWithRetry(
+    Map<String, dynamic> profile, {
+    String? fallbackEmail,
+  }) async {
+    Object? lastError;
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        await _guard(
+          () => _syncLocalApiToken(profile, fallbackEmail: fallbackEmail),
+        );
+        return;
+      } catch (error) {
+        lastError = error;
+        if (attempt < 2) {
+          await Future<void>.delayed(
+            Duration(milliseconds: attempt == 0 ? 300 : 800),
+          );
+        }
+      }
+    }
+    throw lastError ?? ApiException('개인 API 로그인 정보를 만들지 못했습니다.');
   }
 
   Future<void> _syncLocalApiToken(
@@ -164,19 +254,24 @@ class AuthRepository {
     String? fallbackEmail,
   }) async {
     final email = _readString(profile, ['email']) ?? fallbackEmail;
-    if (email == null || email.trim().isEmpty) return;
+    if (email == null || email.trim().isEmpty) {
+      throw ApiException('개인 API 동기화에 필요한 이메일이 없습니다.');
+    }
+    final normalizedEmail = email.trim().toLowerCase();
     final nickname = _readString(profile, ['nickname', 'name', 'username']) ??
-        _nicknameFromEmail(email);
+        _nicknameFromEmail(normalizedEmail);
     final externalUserId = profile['id'] ?? profile['user_id'] ?? profile['sub'];
     final apiToken = await _localAuthApi.syncAuthenticatedUser(
-      email: email.trim(),
+      email: normalizedEmail,
       nickname: nickname,
       externalUserId: externalUserId,
     );
+    _ensureValidTokenResponse(apiToken);
     await _storage.saveApiTokens(
       accessToken: apiToken.accessToken,
       refreshToken: apiToken.refreshToken,
     );
+    await _storage.saveApiAccountEmail(normalizedEmail);
   }
 
   String? _readString(Map<String, dynamic> source, List<String> keys) {

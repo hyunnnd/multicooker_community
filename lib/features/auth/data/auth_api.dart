@@ -128,6 +128,11 @@ class LocalAuthApi {
     );
   }
 
+  Future<Map<String, dynamic>> me() async {
+    final response = await _dio.get(ApiConstants.me);
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Future<void> logout(RefreshRequest request) async {
     await _dio.post(ApiConstants.logout, data: request.toJson());
   }

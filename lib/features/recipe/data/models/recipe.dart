@@ -34,6 +34,7 @@ class Recipe {
   final List<CookerStep> cookerSteps;
   final bool isSaved;
   final bool isOfficial;
+
   final String author;
 
   String get compatibilityLabel => compatibilityType.label;

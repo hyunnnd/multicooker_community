@@ -1,3 +1,4 @@
+import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/ai_recommend/presentation/ai_ingredient_scan_screen.dart';
@@ -15,13 +16,16 @@ import '../../features/cooking/presentation/cooking_preparation_screen.dart';
 import '../../features/cooking/presentation/recipe_cooking_flow_screen.dart';
 import '../../features/device/presentation/device_screen.dart';
 import '../../features/home/presentation/home_screen.dart';
+import '../../features/pet/presentation/pet_test_screen.dart';
 import '../../features/profile/presentation/profile_pages.dart';
+import '../../features/recipe/data/models/recipe.dart';
 import '../../features/recipe/presentation/recipe_browse_screens.dart';
 import '../../features/recipe/presentation/recipe_detail_screen.dart';
 import '../../features/recipe/presentation/recipe_list_screen.dart';
 import '../../features/recipe/presentation/recipe_results_screen.dart';
 import '../../features/recipe/presentation/recipe_search_screen.dart';
 import '../../features/recipe/presentation/recipe_upload_screen.dart';
+import '../../features/recipe/provider/recipe_provider.dart';
 import '../../features/settings/presentation/settings_screen.dart';
 import '../../features/splash/presentation/splash_screen.dart';
 
@@ -60,6 +64,7 @@ final appRouter = GoRouter(
       ),
     ),
     GoRoute(path: '/home', builder: (_, _) => const HomeScreen()),
+    GoRoute(path: '/pet-test', builder: (_, _) => const PetTestScreen()),
     GoRoute(path: '/device', builder: (_, _) => const DeviceScreen()),
     GoRoute(path: '/recipes', builder: (_, _) => const RecipeListScreen()),
     GoRoute(
@@ -133,6 +138,8 @@ final appRouter = GoRouter(
         initialRecipeId: state.uri.queryParameters['recipeId'],
         initialRecipeTitle: state.uri.queryParameters['recipeTitle'],
         initialRecipeImage: state.uri.queryParameters['recipeImage'],
+        initialReviewRating:
+            int.tryParse(state.uri.queryParameters['rating'] ?? '') ?? 5,
         initialWriteReview: state.uri.queryParameters['write'] == '1',
         initialPostId: int.tryParse(state.uri.queryParameters['postId'] ?? ''),
       ),
@@ -140,12 +147,28 @@ final appRouter = GoRouter(
     GoRoute(path: '/settings', builder: (_, _) => const SettingsScreen()),
     GoRoute(
       path: '/settings/app',
-      builder: (_, _) => const AppPreferencesScreen(),
+      builder: (_, _) => const AppSettingsScreen(),
     ),
     GoRoute(path: '/my/recipes', builder: (_, _) => const MyRecipesScreen()),
     GoRoute(
       path: '/my/recipes/new',
       builder: (_, _) => const RecipeUploadScreen(returnToMyRecipes: true),
+    ),
+    GoRoute(
+      path: '/my/recipes/:id/edit',
+      builder: (context, state) {
+        final extra = state.extra;
+        final recipe = extra is Recipe
+            ? extra
+            : context
+                .read<RecipeProvider>()
+                .recipeById(state.pathParameters['id'] ?? '');
+        if (recipe == null) return const MyRecipesScreen();
+        return RecipeUploadScreen(
+          returnToMyRecipes: true,
+          initialRecipe: recipe,
+        );
+      },
     ),
     GoRoute(
       path: '/my/saved-recipes',

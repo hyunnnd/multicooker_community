@@ -7,16 +7,24 @@ import 'package:provider/provider.dart';
 
 import '../../../core/language/language_provider.dart';
 import '../../auth/provider/auth_provider.dart';
-import '../../profile/provider/profile_provider.dart';
+import '../data/models/cooker_step.dart';
 import '../data/models/recipe.dart';
+import '../data/models/recipe_instruction_step.dart';
 import '../data/models/recipe_step.dart';
 import '../provider/recipe_provider.dart';
 import 'widgets/figma_recipe_widgets.dart';
 
 class RecipeUploadScreen extends StatefulWidget {
-  const RecipeUploadScreen({super.key, this.returnToMyRecipes = false});
+  const RecipeUploadScreen({
+    super.key,
+    this.returnToMyRecipes = false,
+    this.initialRecipe,
+  });
 
   final bool returnToMyRecipes;
+  final Recipe? initialRecipe;
+
+  bool get isEditing => initialRecipe != null;
 
   @override
   State<RecipeUploadScreen> createState() => _RecipeUploadScreenState();
@@ -25,9 +33,43 @@ class RecipeUploadScreen extends StatefulWidget {
 class _RecipeUploadScreenState extends State<RecipeUploadScreen> {
   final _title = TextEditingController();
   final _description = TextEditingController();
-  final _ingredients = [_UploadIngredient()];
-  final _stages = [_UploadStage()];
+  late final List<_UploadIngredient> _ingredients;
+  late final List<_UploadStage> _stages;
   int _page = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    final recipe = widget.initialRecipe;
+    if (recipe == null) {
+      _ingredients = [_UploadIngredient()];
+      _stages = [_UploadStage()];
+      return;
+    }
+
+    _title.text = recipe.title;
+    _description.text = recipe.description;
+    _ingredients = recipe.ingredients.isEmpty
+        ? [_UploadIngredient()]
+        : recipe.ingredients
+            .map(
+              (ingredient) => _UploadIngredient.fromValues(
+                name: ingredient.name,
+                amount: ingredient.amount,
+              ),
+            )
+            .toList(growable: true);
+    _stages = [
+      for (var index = 0; index < recipe.cookerSteps.length; index++)
+        _UploadStage.fromRecipe(
+          cookerStep: recipe.cookerSteps[index],
+          instructionStep: index < recipe.instructionSteps.length
+              ? recipe.instructionSteps[index]
+              : null,
+        ),
+    ];
+    if (_stages.isEmpty) _stages.add(_UploadStage());
+  }
 
   @override
   void dispose() {
@@ -116,41 +158,49 @@ class _RecipeUploadScreenState extends State<RecipeUploadScreen> {
     }
 
     final provider = context.read<RecipeProvider>();
-    final saved = await provider.uploadRecipe(
-      title: _title.text.trim(),
-      description: _serverDescription(),
-      steps: steps,
-    );
+    final editingRecipe = widget.initialRecipe;
+    final saved = editingRecipe == null
+        ? await provider.uploadRecipe(
+            title: _title.text.trim(),
+            description: _serverDescription(),
+            steps: steps,
+          )
+        : await provider.updateMyRecipe(
+            recipeId: editingRecipe.id,
+            title: _title.text.trim(),
+            description: _serverDescription(),
+            steps: steps,
+          );
     if (!mounted) return;
     if (!saved) {
       _toast(
         provider.errorMessage ??
-            lang.t('레시피를 저장하지 못했습니다.', 'Could not save the recipe.'),
+            lang.t(
+              widget.isEditing ? '레시피를 수정하지 못했습니다.' : '레시피를 저장하지 못했습니다.',
+              widget.isEditing ? 'Could not update the recipe.' : 'Could not save the recipe.',
+            ),
       );
       return;
     }
 
-    try {
-      await context.read<ProfileProvider>().loadMyRecipes();
-    } catch (_) {
-      // 회사 레시피 저장은 성공했으므로 마이페이지 새로고침 실패는 별도로 처리합니다.
-    }
-
-    Recipe? recipe;
-    for (final item in provider.recipes) {
-      if (!item.isOfficial && item.title == _title.text.trim()) {
-        recipe = item;
-        break;
-      }
-    }
+    final recipe = provider.lastUploadedRecipe;
     await showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(lang.t('레시피를 공유했어요', 'Recipe shared')),
+        title: Text(
+          lang.t(
+            widget.isEditing ? '레시피를 수정했어요' : '레시피를 공유했어요',
+            widget.isEditing ? 'Recipe updated' : 'Recipe shared',
+          ),
+        ),
         content: Text(
           lang.t(
-            '업로드한 레시피를 목록과 상세 화면에서 확인할 수 있어요.',
-            'You can find it in the recipe list and detail screen.',
+            widget.isEditing
+                ? '수정한 내용이 목록과 상세 화면에 반영되었습니다.'
+                : '업로드한 레시피를 목록과 상세 화면에서 확인할 수 있어요.',
+            widget.isEditing
+                ? 'The changes are now visible in the list and detail screen.'
+                : 'You can find it in the recipe list and detail screen.',
           ),
         ),
         actions: [
@@ -217,7 +267,8 @@ class _RecipeUploadScreenState extends State<RecipeUploadScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final loading = context.watch<RecipeProvider>().isLoading;
+    final recipeProvider = context.watch<RecipeProvider>();
+    final loading = recipeProvider.isLoading || recipeProvider.isSaving;
     final lang = context.watch<LanguageProvider>();
     final labels = [
       lang.t('기본 정보', 'Basics'),
@@ -228,6 +279,7 @@ class _RecipeUploadScreenState extends State<RecipeUploadScreen> {
     return Scaffold(
       backgroundColor: figmaBg,
       appBar: AppBar(
+        title: Text(widget.isEditing ? '레시피 수정' : '레시피 등록'),
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,
         leading: IconButton(
@@ -267,7 +319,10 @@ class _RecipeUploadScreenState extends State<RecipeUploadScreen> {
                   ? lang.t('저장 중...', 'Saving...')
                   : (_page < 3
                         ? lang.t('다음', 'Next')
-                        : lang.t('레시피 등록하기', 'Publish recipe')),
+                        : lang.t(
+                            widget.isEditing ? '레시피 수정하기' : '레시피 등록하기',
+                            widget.isEditing ? 'Update recipe' : 'Publish recipe',
+                          )),
             ),
           ),
         ),
@@ -313,6 +368,13 @@ class _RecipeUploadScreenState extends State<RecipeUploadScreen> {
 }
 
 class _UploadIngredient {
+  _UploadIngredient();
+
+  _UploadIngredient.fromValues({required String name, required String amount}) {
+    this.name.text = name;
+    this.amount.text = amount;
+  }
+
   final name = TextEditingController();
   final amount = TextEditingController();
 
@@ -323,6 +385,22 @@ class _UploadIngredient {
 }
 
 class _UploadStage {
+  _UploadStage();
+
+  _UploadStage.fromRecipe({
+    required CookerStep cookerStep,
+    RecipeInstructionStep? instructionStep,
+  }) {
+    title.text = instructionStep?.title.trim().isNotEmpty == true
+        ? instructionStep!.title
+        : cookerStep.label;
+    description.text = instructionStep?.description.trim().isNotEmpty == true
+        ? instructionStep!.description
+        : '${cookerStep.temperature}°C에서 ${cookerStep.timeMin}분 조리합니다.';
+    temperature.text = cookerStep.temperature.toString();
+    minutes.text = cookerStep.timeMin.toString();
+  }
+
   final title = TextEditingController();
   final description = TextEditingController();
   final temperature = TextEditingController(text: '180');

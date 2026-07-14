@@ -531,9 +531,23 @@ class _CompleteView extends StatelessWidget {
       ),
       const SizedBox(height: 18),
       OutlinedButton.icon(
-        onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('후기 작성 기능은 API 연결 후 제공됩니다.')),
-        ),
+        onPressed: () async {
+          final params = <String, String>{
+            'write': '1',
+            'recipeId': recipe.id,
+            'recipeTitle': recipe.title,
+            'rating': '5',
+            if ((recipe.thumbnailUrl ?? '').trim().isNotEmpty)
+              'recipeImage': recipe.thumbnailUrl!.trim(),
+          };
+          final created = await context.push<bool>(
+            Uri(path: '/community', queryParameters: params).toString(),
+          );
+          if (!context.mounted || created != true) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('후기가 등록되었습니다.')),
+          );
+        },
         icon: const Icon(Icons.rate_review_outlined),
         label: const Text('후기 작성'),
       ),

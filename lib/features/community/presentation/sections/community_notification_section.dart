@@ -95,7 +95,7 @@ class _NotificationTile extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 3),
-                  Text('"${notification.postTitle}"', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Color(0xFF9CA3AF))),
+                  Text(notification.postContextText, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Color(0xFF9CA3AF))),
                   const SizedBox(height: 3),
                   Text(notification.relativeTime, style: const TextStyle(fontSize: 11, color: Color(0xFFD1D5DB))),
                 ],

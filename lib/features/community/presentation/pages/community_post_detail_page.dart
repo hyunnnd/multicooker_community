@@ -22,6 +22,83 @@ class _PostDetailPageState extends State<_PostDetailPage> {
     super.dispose();
   }
 
+  Future<void> _showAdminLikeDialog(CommunityPost post) async {
+    final controller = TextEditingController(text: '${post.likes}');
+    var applyToPopular = true;
+    final result = await showDialog<({int count, bool applyToPopular})>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('관리자 좋아요 설정'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '표시할 좋아요 수를 입력하세요. 실제 계정별 좋아요 상태는 그대로 유지됩니다.',
+                style: TextStyle(fontSize: 12, height: 1.5, color: _gray500),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: '좋아요 수',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                value: applyToPopular,
+                title: const Text('인기글 테스트 점수에도 반영'),
+                subtitle: const Text('두 계정만으로 인기글 화면을 확인할 때 사용합니다.'),
+                onChanged: (value) =>
+                    setDialogState(() => applyToPopular = value ?? true),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('취소'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final count = int.tryParse(controller.text.trim());
+                if (count == null || count < 0) return;
+                Navigator.pop(
+                  dialogContext,
+                  (count: count, applyToPopular: applyToPopular),
+                );
+              },
+              child: const Text('적용'),
+            ),
+          ],
+        ),
+      ),
+    );
+    controller.dispose();
+    if (result == null || !mounted) return;
+
+    final provider = context.read<CommunityProvider>();
+    final ok = await provider.setAdminPostLikes(
+      post.id,
+      likeCount: result.count,
+      applyToPopularTest: result.applyToPopular,
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          ok
+              ? '좋아요 수를 변경했습니다.'
+              : (provider.errorMessage ?? '변경하지 못했습니다.'),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<CommunityProvider>();
@@ -57,6 +134,8 @@ class _PostDetailPageState extends State<_PostDetailPage> {
                 onDelete: () => setState(() => _showDeleteConfirm = true),
                 onReport: () => provider.reportPost(post.id),
                 onBlock: () => provider.blockPost(post.id),
+                canAdminister: post.canAdminister,
+                onAdminSetLikes: () => _showAdminLikeDialog(post),
               ),
             ),
             Expanded(
@@ -114,8 +193,17 @@ class _PostDetailPageState extends State<_PostDetailPage> {
                               onTap: () => provider.togglePostLike(post.id),
                             ),
                             const SizedBox(width: 20),
-                            _SmallActionIcon(icon: Icons.mode_comment_outlined, label: '${post.comments.length}', color: _gray400, iconSize: 18, fontSize: 13),
-
+                            _SmallActionIcon(icon: Icons.mode_comment_outlined, label: '${post.commentCount}', color: _gray400, iconSize: 18, fontSize: 13),
+                            if (post.reportCount != null) ...[
+                              const SizedBox(width: 20),
+                              _SmallActionIcon(
+                                icon: Icons.flag_outlined,
+                                label: '신고 ${post.reportCount}',
+                                color: post.reportCount! > 0 ? _red : _gray400,
+                                iconSize: 18,
+                                fontSize: 13,
+                              ),
+                            ],
                           ],
                         ),
                       ],
@@ -143,7 +231,7 @@ class _PostDetailPageState extends State<_PostDetailPage> {
                             ),
                           ),
                         const Spacer(),
-                        Text('댓글 ${post.comments.length}', style: const TextStyle(fontSize: 12, color: _gray400)),
+                        Text('댓글 ${post.commentCount}', style: const TextStyle(fontSize: 12, color: _gray400)),
                       ],
                     ),
                   ),
@@ -370,6 +458,14 @@ class _CommentTileState extends State<_CommentTile> {
                               color: _showReply ? _orange : _gray400,
                               onTap: () => setState(() => _showReply = !_showReply),
                             ),
+                            if (comment.reportCount != null) ...[
+                              const SizedBox(width: 16),
+                              _SmallActionIcon(
+                                icon: Icons.flag_outlined,
+                                label: '신고 ${comment.reportCount}',
+                                color: comment.reportCount! > 0 ? _red : _gray400,
+                              ),
+                            ],
                           ],
                         ),
                         if (comment.replies.isNotEmpty) ...[
@@ -562,11 +658,23 @@ class _ReplyTileState extends State<_ReplyTile> {
                       const SizedBox(height: 5),
                       Text(reply.content, style: const TextStyle(fontSize: 12, height: 1.55, color: _text2)),
                       const SizedBox(height: 8),
-                      _SmallActionIcon(
-                        icon: liked ? Icons.favorite : Icons.favorite_border,
-                        label: '${reply.likes + (liked && !reply.isLiked ? 1 : 0)}',
-                        color: liked ? _red : _gray400,
-                        onTap: () => provider.toggleReplyLike(reply.id),
+                      Row(
+                        children: [
+                          _SmallActionIcon(
+                            icon: liked ? Icons.favorite : Icons.favorite_border,
+                            label: '${reply.likes + (liked && !reply.isLiked ? 1 : 0)}',
+                            color: liked ? _red : _gray400,
+                            onTap: () => provider.toggleReplyLike(reply.id),
+                          ),
+                          if (reply.reportCount != null) ...[
+                            const SizedBox(width: 16),
+                            _SmallActionIcon(
+                              icon: Icons.flag_outlined,
+                              label: '신고 ${reply.reportCount}',
+                              color: reply.reportCount! > 0 ? _red : _gray400,
+                            ),
+                          ],
+                        ],
                       ),
                     ],
                   ],

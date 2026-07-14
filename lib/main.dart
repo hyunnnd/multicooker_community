@@ -19,7 +19,6 @@ import 'features/device/provider/device_provider.dart';
 import 'features/profile/data/profile_repository.dart';
 import 'features/profile/provider/profile_provider.dart';
 import 'features/recipe/data/api_recipe_repository.dart';
-import 'features/recipe/data/mock_recipe_repository.dart';
 import 'features/recipe/provider/recipe_provider.dart';
 
 void main() {
@@ -33,10 +32,7 @@ void main() {
     tokenStorage,
   );
   final bleService = SdkCookerService();
-  final profileRepository = ProfileRepository(
-    dioClient.apiDio,
-    dioClient.authDio,
-  );
+  final profileRepository = ProfileRepository(dioClient.apiDio);
 
   runApp(
     MultiProvider(
@@ -49,12 +45,8 @@ void main() {
         ),
         ChangeNotifierProvider(
           create: (_) => RecipeProvider(
-            ApiRecipeRepository(
-              dioClient.authDio,
-              dioClient.apiDio,
-              MockRecipeRepository(),
-            ),
-          )..loadRecipes(),
+            ApiRecipeRepository(dioClient.apiDio),
+          ),
         ),
         ChangeNotifierProvider(
           create: (_) => CookingSessionProvider(

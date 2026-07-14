@@ -124,7 +124,22 @@ class _CookingCompleteScreenState extends State<CookingCompleteScreen> {
                 ),
                 const SizedBox(height: 18),
                 OutlinedButton.icon(
-                  onPressed: () => _message('후기 작성 기능은 API 연결 후 제공됩니다.'),
+                  onPressed: () async {
+                    final params = <String, String>{
+                      'write': '1',
+                      'recipeId': recipe.id,
+                      'recipeTitle': recipe.title,
+                      'rating': (_rating == 0 ? 5 : _rating).toString(),
+                      if ((recipe.thumbnailUrl ?? '').trim().isNotEmpty)
+                        'recipeImage': recipe.thumbnailUrl!.trim(),
+                    };
+                    final created = await context.push<bool>(
+                      Uri(path: '/community', queryParameters: params)
+                          .toString(),
+                    );
+                    if (!mounted || created != true) return;
+                    _message('후기가 등록되었습니다.');
+                  },
                   icon: const Icon(Icons.rate_review_outlined),
                   label: const Text('후기 작성'),
                 ),

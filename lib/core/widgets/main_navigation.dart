@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 
-const attachOrange = Color(0xFFF97316);
-const attachGray400 = Color(0xFF9CA3AF);
+import '../language/language_provider.dart';
 
 class MainNavigationBar extends StatelessWidget {
   const MainNavigationBar({required this.currentIndex, super.key});
@@ -10,36 +10,40 @@ class MainNavigationBar extends StatelessWidget {
   final int currentIndex;
 
   static const _paths = [
-    '/home',
+    '/ai-scan',
     '/recipes',
-    '/device',
+    '/home',
     '/community',
     '/settings',
   ];
 
   @override
   Widget build(BuildContext context) {
-    final items = const [
-      _NavItem(Icons.home_outlined, Icons.home, '홈'),
-      _NavItem(Icons.menu_book_outlined, Icons.menu_book, '레시피'),
-      _NavItem(Icons.memory_outlined, Icons.memory, '쿠커'),
-      _NavItem(Icons.people_outline, Icons.people, '커뮤니티'),
-      _NavItem(Icons.person_outline, Icons.person, '마이'),
+    final lang = context.watch<LanguageProvider>();
+    final items = [
+      const _NavItem(Icons.camera_alt_outlined, Icons.camera_alt, 'AI'),
+      _NavItem(
+        Icons.menu_book_outlined,
+        Icons.menu_book,
+        lang.t('레시피', 'Recipe'),
+      ),
+      _NavItem(Icons.home_outlined, Icons.home, lang.t('홈', 'Home')),
+      _NavItem(Icons.forum_outlined, Icons.forum, lang.t('커뮤니티', 'Community')),
+      _NavItem(Icons.person_outline, Icons.person, lang.t('설정', 'My')),
     ];
     return SafeArea(
       top: false,
       child: Container(
         height: 64,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         decoration: const BoxDecoration(
           color: Colors.white,
           border: Border(top: BorderSide(color: Color(0xFFF3F4F6))),
         ),
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: List.generate(items.length, (index) {
-            final active = currentIndex == index;
             final item = items[index];
+            final active = currentIndex == index;
             return Expanded(
               child: InkWell(
                 borderRadius: BorderRadius.circular(12),
@@ -52,7 +56,9 @@ class MainNavigationBar extends StatelessWidget {
                     Icon(
                       active ? item.activeIcon : item.icon,
                       size: 22,
-                      color: active ? attachOrange : attachGray400,
+                      color: active
+                          ? const Color(0xFFF97316)
+                          : const Color(0xFF9CA3AF),
                     ),
                     const SizedBox(height: 3),
                     Text(
@@ -60,8 +66,10 @@ class MainNavigationBar extends StatelessWidget {
                       maxLines: 1,
                       style: TextStyle(
                         fontSize: 10,
-                        fontWeight: active ? FontWeight.w700 : FontWeight.w400,
-                        color: active ? attachOrange : attachGray400,
+                        fontWeight: active ? FontWeight.w800 : FontWeight.w500,
+                        color: active
+                            ? const Color(0xFFF97316)
+                            : const Color(0xFF9CA3AF),
                       ),
                     ),
                   ],
@@ -77,6 +85,7 @@ class MainNavigationBar extends StatelessWidget {
 
 class _NavItem {
   const _NavItem(this.icon, this.activeIcon, this.label);
+
   final IconData icon;
   final IconData activeIcon;
   final String label;

@@ -3,7 +3,6 @@ import 'package:multicooker_bluetooth_sdk/multicooker_bluetooth_sdk.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/widgets/main_navigation.dart';
-import '../../../core/widgets/main_route_back_scope.dart';
 import '../provider/device_provider.dart';
 
 class DeviceScreen extends StatefulWidget {
@@ -32,127 +31,120 @@ class _DeviceScreenState extends State<DeviceScreen> {
         (_) => _showCookingCompleted(),
       );
     }
-    return MainRouteBackScope(
-      backToHomeWhenUnhandled: true,
-      child: Scaffold(
-        appBar: AppBar(
-          leading: const AppBackButton(),
-          title: const Text('기기 관리'),
-        ),
-        bottomNavigationBar: const MainNavigationBar(currentIndex: 2),
-        body: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            _ConnectionStatus(device: device),
-            if (device.errorMessage != null) ...[
-              const SizedBox(height: 10),
-              Text(
-                device.errorMessage!,
-                style: const TextStyle(color: Colors.red),
-              ),
-            ],
-            const SizedBox(height: 14),
-            if (!device.isConnected) ...[
-              FilledButton.icon(
-                onPressed: device.isScanning
-                    ? device.stopScan
-                    : device.scanDevices,
-                icon: device.isScanning
-                    ? const SizedBox.square(
-                        dimension: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.bluetooth_searching),
-                label: Text(device.isScanning ? '검색 중지' : '쿠커 검색'),
-              ),
-              const SizedBox(height: 10),
-              for (final name in device.devices)
-                Card(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  child: ListTile(
-                    leading: const Icon(Icons.kitchen_outlined),
-                    title: Text(name),
-                    subtitle: const Text('Graphene Cooker'),
-                    trailing: FilledButton(
-                      onPressed: device.isBusy ? null : () => _connect(name),
-                      child: const Text('연결'),
-                    ),
-                  ),
-                ),
-            ] else ...[
-              _LiveStatus(status: device.status),
-              const SizedBox(height: 14),
-              _CookingProgramCard(
-                sections: _sections,
-                onChanged: () => setState(() {}),
-                onAdd: _sections.length == 10
-                    ? null
-                    : () =>
-                          setState(() => _sections.add(_SectionDraft(100, 10))),
-                onRemove: (index) => setState(() => _sections.removeAt(index)),
-                onStart: _sending
-                    ? null
-                    : () => _send(
-                        () =>
-                            _sendCookingStatus(device, CookingStatus.cooking),
-                        '조리 프로그램을 전송했습니다.',
-                      ),
-                onStop: _sending
-                    ? null
-                    : () => _send(
-                        () =>
-                            _sendCookingStatus(device, CookingStatus.stopped),
-                        '조리 중지 명령을 전송했습니다.',
-                      ),
-              ),
-              const SizedBox(height: 14),
-              _MusicCard(
-                onMusic: _onMusic,
-                offMusic: _offMusic,
-                enabled: !_sending,
-                onOnMusicChanged: (value) => setState(() => _onMusic = value),
-                onOffMusicChanged: (value) =>
-                    setState(() => _offMusic = value),
-                onPreview: () => _send(
-                  () => device.sendMusic(
-                    onMusic: _onMusic,
-                    offMusic: _offMusic,
-                    preview: true,
-                  ),
-                  '효과음 미리듣기 명령을 전송했습니다.',
-                ),
-                onApply: () => _send(
-                  () => device.sendMusic(
-                    onMusic: _onMusic,
-                    offMusic: _offMusic,
-                    preview: false,
-                  ),
-                  '효과음 설정을 적용했습니다.',
-                ),
-              ),
-              const SizedBox(height: 14),
-              _LedCard(
-                color: _ledColor,
-                enabled: !_sending,
-                onChanged: (value) => setState(() => _ledColor = value),
-                onPreview: () => _send(
-                  () => device.sendLed(ledColor: _ledColor, preview: true),
-                  'LED 미리보기 명령을 전송했습니다.',
-                ),
-                onApply: () => _send(
-                  () => device.sendLed(ledColor: _ledColor, preview: false),
-                  'LED 설정을 적용했습니다.',
-                ),
-              ),
-              const SizedBox(height: 14),
-              OutlinedButton.icon(
-                onPressed: _sending ? null : device.disconnect,
-                icon: const Icon(Icons.link_off),
-                label: const Text('연결 해제'),
-              ),
-            ],
+    return Scaffold(
+      appBar: AppBar(
+        leading: const AppBackButton(),
+        title: const Text('기기 관리'),
+      ),
+      bottomNavigationBar: const MainNavigationBar(currentIndex: -1),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          _ConnectionStatus(device: device),
+          if (device.errorMessage != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              device.errorMessage!,
+              style: const TextStyle(color: Colors.red),
+            ),
           ],
-        ),
+          const SizedBox(height: 14),
+          if (!device.isConnected) ...[
+            FilledButton.icon(
+              onPressed: device.isScanning
+                  ? device.stopScan
+                  : device.scanDevices,
+              icon: device.isScanning
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.bluetooth_searching),
+              label: Text(device.isScanning ? '검색 중지' : '쿠커 검색'),
+            ),
+            const SizedBox(height: 10),
+            for (final name in device.devices)
+              Card(
+                margin: const EdgeInsets.only(bottom: 8),
+                child: ListTile(
+                  leading: const Icon(Icons.kitchen_outlined),
+                  title: Text(name),
+                  subtitle: const Text('Graphene Cooker'),
+                  trailing: FilledButton(
+                    onPressed: device.isBusy ? null : () => _connect(name),
+                    child: const Text('연결'),
+                  ),
+                ),
+              ),
+          ] else ...[
+            _LiveStatus(status: device.status),
+            const SizedBox(height: 14),
+            _CookingProgramCard(
+              sections: _sections,
+              onChanged: () => setState(() {}),
+              onAdd: _sections.length == 10
+                  ? null
+                  : () => setState(() => _sections.add(_SectionDraft(100, 10))),
+              onRemove: (index) => setState(() => _sections.removeAt(index)),
+              onStart: _sending
+                  ? null
+                  : () => _send(
+                      () => _sendCookingStatus(device, CookingStatus.cooking),
+                      '조리 프로그램을 전송했습니다.',
+                    ),
+              onStop: _sending
+                  ? null
+                  : () => _send(
+                      () => _sendCookingStatus(device, CookingStatus.stopped),
+                      '조리 중지 명령을 전송했습니다.',
+                    ),
+            ),
+            const SizedBox(height: 14),
+            _MusicCard(
+              onMusic: _onMusic,
+              offMusic: _offMusic,
+              enabled: !_sending,
+              onOnMusicChanged: (value) => setState(() => _onMusic = value),
+              onOffMusicChanged: (value) => setState(() => _offMusic = value),
+              onPreview: () => _send(
+                () => device.sendMusic(
+                  onMusic: _onMusic,
+                  offMusic: _offMusic,
+                  preview: true,
+                ),
+                '효과음 미리듣기 명령을 전송했습니다.',
+              ),
+              onApply: () => _send(
+                () => device.sendMusic(
+                  onMusic: _onMusic,
+                  offMusic: _offMusic,
+                  preview: false,
+                ),
+                '효과음 설정을 적용했습니다.',
+              ),
+            ),
+            const SizedBox(height: 14),
+            _LedCard(
+              color: _ledColor,
+              enabled: !_sending,
+              onChanged: (value) => setState(() => _ledColor = value),
+              onPreview: () => _send(
+                () => device.sendLed(ledColor: _ledColor, preview: true),
+                'LED 미리보기 명령을 전송했습니다.',
+              ),
+              onApply: () => _send(
+                () => device.sendLed(ledColor: _ledColor, preview: false),
+                'LED 설정을 적용했습니다.',
+              ),
+            ),
+            const SizedBox(height: 14),
+            OutlinedButton.icon(
+              onPressed: _sending ? null : device.disconnect,
+              icon: const Icon(Icons.link_off),
+              label: const Text('연결 해제'),
+            ),
+          ],
+        ],
       ),
     );
   }

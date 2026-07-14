@@ -37,7 +37,6 @@ dependencies:
   go_router: ^17.0.1
   provider: ^6.1.5+1
   url_launcher: ^6.3.2
-  app_links: ^7.2.1
 
   multicooker_bluetooth_sdk:
     git:
@@ -45,6 +44,8 @@ dependencies:
       ref: main
   rive: ^0.14.9
   image_picker: ^1.2.3
+  flame: ^1.37.0
+  app_links: ^7.2.1
 
 dev_dependencies:
   flutter_test:
@@ -71,6 +72,8 @@ flutter:
   assets:
     - assets/animations/cooking_wait.riv
     - assets/images/
+    - assets/images/pet/
+    - assets/images/pet/toque/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

@@ -5,6 +5,7 @@ class _WriteReviewPage extends StatefulWidget {
     required this.initialRecipeId,
     required this.initialRecipeTitle,
     required this.initialRecipeImage,
+    required this.initialRating,
     required this.onBack,
     required this.onSubmit,
   });
@@ -12,6 +13,7 @@ class _WriteReviewPage extends StatefulWidget {
   final String initialRecipeId;
   final String initialRecipeTitle;
   final String initialRecipeImage;
+  final int initialRating;
   final VoidCallback onBack;
   final Future<void> Function(String recipeId, String recipeTitle, String recipeImage, int rating, String content) onSubmit;
 
@@ -22,13 +24,14 @@ class _WriteReviewPage extends StatefulWidget {
 class _WriteReviewPageState extends State<_WriteReviewPage> {
   late final TextEditingController _recipeController;
   final _contentController = TextEditingController();
-  int _rating = 5;
+  late int _rating;
   bool _submitting = false;
 
   @override
   void initState() {
     super.initState();
     _recipeController = TextEditingController(text: widget.initialRecipeTitle);
+    _rating = widget.initialRating.clamp(1, 5).toInt();
   }
 
   @override
@@ -67,7 +70,14 @@ class _WriteReviewPageState extends State<_WriteReviewPage> {
                 const SizedBox(height: 8),
                 TextField(
                   controller: _recipeController,
-                  decoration: const InputDecoration(hintText: '레시피 이름을 입력하세요'),
+                  readOnly: widget.initialRecipeId.isNotEmpty,
+                  decoration: InputDecoration(
+                    hintText: '레시피 이름을 입력하세요',
+                    filled: true,
+                    fillColor: widget.initialRecipeId.isNotEmpty
+                        ? _gray100
+                        : Colors.white,
+                  ),
                   style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: _text),
                 ),
                 const SizedBox(height: 14),
@@ -121,7 +131,7 @@ class _WriteReviewPageState extends State<_WriteReviewPage> {
               minimumSize: const Size.fromHeight(52),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
             ),
-            child: Text(_submitting ? '등록 중...' : '커뮤니티 후기로 등록', style: const TextStyle(fontWeight: FontWeight.w900)),
+            child: Text(_submitting ? '등록 중...' : '후기 등록', style: const TextStyle(fontWeight: FontWeight.w900)),
           ),
         ],
       ),

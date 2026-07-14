@@ -16,7 +16,6 @@ class ProfileProvider extends ChangeNotifier {
     language: 'ko',
     tutorialCompleted: false,
   );
-  List<ProfileRecipeItem> myRecipes = const [];
   List<ProfileRecipeItem> savedRecipes = const [];
   List<MyReviewItem> reviews = const [];
   List<MyCommentItem> comments = const [];
@@ -29,6 +28,29 @@ class ProfileProvider extends ChangeNotifier {
   bool _loadedOnce = false;
   int _loadingCount = 0;
 
+
+  void resetForAccountChange() {
+    summary = null;
+    settings = const ProfileSettings(
+      cookingNotification: true,
+      communityNotification: true,
+      marketingNotification: false,
+      language: 'ko',
+      tutorialCompleted: false,
+    );
+    savedRecipes = const [];
+    reviews = const [];
+    comments = const [];
+    histories = const [];
+    devices = const [];
+    isLoading = false;
+    isSaving = false;
+    errorMessage = null;
+    _loadedOnce = false;
+    _loadingCount = 0;
+    notifyListeners();
+  }
+
   Future<void> ensureLoaded({bool force = false}) async {
     if (!force && (_loadedOnce || isLoading)) return;
     await loadAll();
@@ -40,7 +62,6 @@ class ProfileProvider extends ChangeNotifier {
     await Future.wait([
       _capture('프로필', () async => summary = await _repository.fetchSummary(), errors),
       _capture('설정', () async => settings = await _repository.fetchSettings(), errors),
-      _capture('내 레시피', () async => myRecipes = await _repository.fetchMyRecipes(), errors),
       _capture('저장 레시피', () async => savedRecipes = await _repository.fetchSavedRecipes(), errors),
       _capture('후기', () async => reviews = await _repository.fetchMyReviews(), errors),
       _capture('댓글', () async => comments = await _repository.fetchMyComments(), errors),
@@ -57,18 +78,12 @@ class ProfileProvider extends ChangeNotifier {
     final errors = <String>[];
     await Future.wait([
       _capture('프로필', () async => summary = await _repository.fetchSummary(), errors),
-      _capture('내 레시피', () async => myRecipes = await _repository.fetchMyRecipes(), errors),
       _capture('후기', () async => reviews = await _repository.fetchMyReviews(), errors),
       _capture('조리 이력', () async => histories = await _repository.fetchCookingHistories(), errors),
     ]);
     errorMessage = errors.isEmpty ? null : '일부 데이터를 불러오지 못했습니다: ${errors.join(' / ')}';
     _finishLoading();
   }
-
-  Future<void> loadMyRecipes() => _loadSection(
-        '내가 올린 레시피',
-        () async => myRecipes = await _repository.fetchMyRecipes(),
-      );
 
   Future<void> loadSavedRecipes() => _loadSection(
         '저장한 레시피',
@@ -129,25 +144,6 @@ class ProfileProvider extends ChangeNotifier {
       );
 
   Future<bool> deleteAccount() => _run(_repository.deleteAccount);
-
-  Future<bool> deleteMyRecipe(String recipeId) => _run(() async {
-        await _repository.deleteMyRecipe(recipeId);
-        myRecipes = myRecipes.where((item) => item.id != recipeId).toList(growable: false);
-      });
-
-  Future<bool> createMyRecipe({
-    required String title,
-    required String description,
-    required List<Map<String, dynamic>> steps,
-  }) =>
-      _run(() async {
-        final recipe = await _repository.createMyRecipe(
-          title: title,
-          description: description,
-          steps: steps,
-        );
-        myRecipes = [recipe, ...myRecipes];
-      });
 
   Future<bool> unsaveRecipe(String recipeId) => _run(() async {
         await _repository.unsaveRecipe(recipeId);
@@ -238,8 +234,7 @@ class ProfileProvider extends ChangeNotifier {
       });
 
   Future<bool> saveHistoryAsRecipe(int historyId) => _run(() async {
-        final recipe = await _repository.saveHistoryAsRecipe(historyId);
-        myRecipes = [recipe, ...myRecipes];
+        await _repository.saveHistoryAsRecipe(historyId);
         await refreshSummary();
       });
 

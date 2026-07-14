@@ -212,12 +212,22 @@ class _CategorySelect extends StatelessWidget {
 }
 
 class _PostMenu extends StatelessWidget {
-  const _PostMenu({required this.isMine, required this.onEdit, required this.onDelete, required this.onReport, required this.onBlock});
+  const _PostMenu({
+    required this.isMine,
+    required this.onEdit,
+    required this.onDelete,
+    required this.onReport,
+    required this.onBlock,
+    this.canAdminister = false,
+    this.onAdminSetLikes,
+  });
   final bool isMine;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
   final VoidCallback onReport;
   final VoidCallback onBlock;
+  final bool canAdminister;
+  final VoidCallback? onAdminSetLikes;
 
   @override
   Widget build(BuildContext context) {
@@ -228,12 +238,18 @@ class _PostMenu extends StatelessWidget {
         if (value == 'delete') onDelete();
         if (value == 'report') onReport();
         if (value == 'block') onBlock();
+        if (value == 'admin_likes') onAdminSetLikes?.call();
       },
       itemBuilder: (_) => [
         if (isMine) const PopupMenuItem(value: 'edit', child: Text('수정')),
         if (isMine) const PopupMenuItem(value: 'delete', child: Text('삭제')),
         if (!isMine) const PopupMenuItem(value: 'report', child: Text('신고')),
         if (!isMine) const PopupMenuItem(value: 'block', child: Text('차단')),
+        if (canAdminister)
+          const PopupMenuItem(
+            value: 'admin_likes',
+            child: Text('관리자 좋아요 설정'),
+          ),
       ],
     );
   }

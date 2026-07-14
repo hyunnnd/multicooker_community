@@ -113,7 +113,12 @@ class CommunityPostCard extends StatelessWidget {
                 const Icon(Icons.mode_comment_outlined, size: 16, color: Color(0xFF9CA3AF)),
                 const SizedBox(width: 4),
                 Text('${post.commentCount}', style: const TextStyle(fontSize: 12, color: kCommunitySubtext)),
-
+                if (post.reportCount != null && post.reportCount! > 0) ...[
+                  const SizedBox(width: 18),
+                  const Icon(Icons.flag_outlined, size: 16, color: Color(0xFFEF4444)),
+                  const SizedBox(width: 4),
+                  Text('신고 ${post.reportCount}', style: const TextStyle(fontSize: 12, color: Color(0xFFEF4444))),
+                ],
               ],
             ),
           ],

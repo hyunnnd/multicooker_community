@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 
@@ -26,8 +27,18 @@ class CommunityProvider extends ChangeNotifier {
 
   var _posts = <CommunityPost>[];
   var _reviews = <CommunityReview>[];
+  final Map<String, List<CommunityReview>> _recipeReviews =
+      <String, List<CommunityReview>>{};
+  final Map<String, List<RecipeCommunityComment>> _recipeComments =
+      <String, List<RecipeCommunityComment>>{};
+  final Set<String> _recipeCommunityLoading = <String>{};
+  final Map<String, String> _recipeCommunityErrors = <String, String>{};
   var _notices = <CommunityNotice>[];
   var _notifications = <CommunityNotification>[];
+  var _adminReports = <AdminCommunityReport>[];
+  var _adminReportSummary = const AdminReportSummary();
+  bool adminLoading = false;
+  String adminReportFilter = 'all';
 
   final likedPostIds = <int>{};
   final likedCommentIds = <int>{};
@@ -54,10 +65,51 @@ class CommunityProvider extends ChangeNotifier {
 
   List<CommunityPost> get posts => _posts.where((p) => !hiddenPostIds.contains(p.id)).toList(growable: false);
   List<CommunityReview> get reviews => _reviews;
+  List<CommunityReview> reviewsForRecipe(String recipeId) =>
+      List<CommunityReview>.unmodifiable(
+        _recipeReviews[recipeId] ?? const <CommunityReview>[],
+      );
+  List<RecipeCommunityComment> commentsForRecipe(String recipeId) =>
+      List<RecipeCommunityComment>.unmodifiable(
+        _recipeComments[recipeId] ?? const <RecipeCommunityComment>[],
+      );
+  bool isRecipeCommunityLoading(String recipeId) =>
+      _recipeCommunityLoading.contains(recipeId);
+  String? recipeCommunityError(String recipeId) =>
+      _recipeCommunityErrors[recipeId];
   List<CommunityNotice> get notices => _notices;
   List<CommunityNotification> get notifications => _notifications;
+  List<AdminCommunityReport> get adminReports => _adminReports;
+  AdminReportSummary get adminReportSummary => _adminReportSummary;
+  bool get isAdmin => _posts.any((post) => post.canAdminister);
   int get unreadCount => _notifications.where((n) => !n.read).length;
   CommunityNotice? get pinnedNotice => _notices.where((n) => n.important).isNotEmpty ? _notices.firstWhere((n) => n.important) : (_notices.isEmpty ? null : _notices.first);
+
+
+  void resetForAccountChange() {
+    _posts = <CommunityPost>[];
+    _reviews = <CommunityReview>[];
+    _recipeReviews.clear();
+    _recipeComments.clear();
+    _recipeCommunityLoading.clear();
+    _recipeCommunityErrors.clear();
+    _notices = <CommunityNotice>[];
+    _notifications = <CommunityNotification>[];
+    _adminReports = <AdminCommunityReport>[];
+    _adminReportSummary = const AdminReportSummary();
+    adminLoading = false;
+    adminReportFilter = 'all';
+    likedPostIds.clear();
+    likedCommentIds.clear();
+    likedReplyIds.clear();
+    likedReviewIds.clear();
+    hiddenPostIds.clear();
+    hiddenCommentIds.clear();
+    hiddenReplyIds.clear();
+    isLoading = true;
+    errorMessage = null;
+    if (!_disposed) notifyListeners();
+  }
 
   Future<void> refreshNotifications({bool silent = true}) async {
     try {
@@ -173,6 +225,110 @@ class CommunityProvider extends ChangeNotifier {
       }
     }
     return null;
+  }
+
+  Future<void> loadRecipeCommunity(
+    String recipeId, {
+    bool silent = false,
+  }) async {
+    final id = recipeId.trim();
+    if (id.isEmpty || _recipeCommunityLoading.contains(id)) return;
+    _recipeCommunityLoading.add(id);
+    if (!silent) notifyListeners();
+    try {
+      final nextReviews = await _repository.fetchReviews(recipeId: id);
+      final nextComments = await _repository.fetchRecipeComments(id);
+      _recipeReviews[id] = nextReviews;
+      _recipeComments[id] = nextComments;
+      _recipeCommunityErrors.remove(id);
+      for (final review in nextReviews) {
+        final index = _reviews.indexWhere((item) => item.id == review.id);
+        if (index < 0) {
+          _reviews.add(review);
+        } else {
+          _reviews[index] = review;
+        }
+      }
+      _syncReactionSetsFromDb();
+    } catch (error) {
+      _recipeCommunityErrors[id] = '후기와 댓글을 불러오지 못했습니다. $error';
+    } finally {
+      _recipeCommunityLoading.remove(id);
+      if (!_disposed) notifyListeners();
+    }
+  }
+
+  Future<bool> addRecipeComment({
+    required String recipeId,
+    required String recipeTitle,
+    required String content,
+  }) async {
+    final trimmed = content.trim();
+    if (trimmed.isEmpty) return false;
+    try {
+      final created = await _repository.createRecipeComment(
+        recipeId: recipeId,
+        recipeTitle: recipeTitle,
+        content: trimmed,
+      );
+      _recipeComments[recipeId] = <RecipeCommunityComment>[
+        created,
+        ...(_recipeComments[recipeId] ?? const <RecipeCommunityComment>[]),
+      ];
+      _recipeCommunityErrors.remove(recipeId);
+      notifyListeners();
+      return true;
+    } catch (error) {
+      _recipeCommunityErrors[recipeId] = '댓글 등록 실패: $error';
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> updateRecipeComment(
+    String recipeId,
+    int commentId,
+    String content,
+  ) async {
+    final trimmed = content.trim();
+    if (trimmed.isEmpty) return false;
+    try {
+      final updated = await _repository.updateRecipeComment(
+        commentId,
+        trimmed,
+      );
+      _recipeComments[recipeId] = [
+        for (final item
+            in _recipeComments[recipeId] ?? const <RecipeCommunityComment>[])
+          if (item.id == commentId) updated else item,
+      ];
+      _recipeCommunityErrors.remove(recipeId);
+      notifyListeners();
+      return true;
+    } catch (error) {
+      _recipeCommunityErrors[recipeId] = '댓글 수정 실패: $error';
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> deleteRecipeComment(
+    String recipeId,
+    int commentId,
+  ) async {
+    try {
+      await _repository.deleteRecipeComment(commentId);
+      _recipeComments[recipeId] = (
+        _recipeComments[recipeId] ?? const <RecipeCommunityComment>[]
+      ).where((item) => item.id != commentId).toList(growable: false);
+      _recipeCommunityErrors.remove(recipeId);
+      notifyListeners();
+      return true;
+    } catch (error) {
+      _recipeCommunityErrors[recipeId] = '댓글 삭제 실패: $error';
+      notifyListeners();
+      return false;
+    }
   }
 
   void setTab(CommunityTab tab) {
@@ -358,12 +514,27 @@ class CommunityProvider extends ChangeNotifier {
     const windows = [3, 6, 9, 12];
     for (final days in windows) {
       final scored = posts
-          .map((post) => _ScoredPost(post, post.activity.forDays(days).score))
-          .where((entry) => entry.score > 0)
+          .map(
+            (post) => _ScoredPost(
+              post,
+              post.activity.forDays(days).score + post.adminPopularityBoost,
+            ),
+          )
+          .where((entry) => entry.post.forcePopular || entry.score > 0)
           .toList()
-        ..sort((a, b) => b.score.compareTo(a.score));
+        ..sort((a, b) {
+          final forced = (b.post.forcePopular ? 1 : 0) -
+              (a.post.forcePopular ? 1 : 0);
+          if (forced != 0) return forced;
+          final score = b.score.compareTo(a.score);
+          if (score != 0) return score;
+          return b.post.likes.compareTo(a.post.likes);
+        });
       if (scored.isNotEmpty) {
-        return PopularPostsResult(posts: scored.map((e) => e.post).toList(), days: days);
+        return PopularPostsResult(
+          posts: scored.map((e) => e.post).toList(),
+          days: days,
+        );
       }
     }
     return const PopularPostsResult(posts: [], days: 0);
@@ -406,6 +577,141 @@ class CommunityProvider extends ChangeNotifier {
     return _notices.where((notice) => [notice.title, notice.summary, notice.content].join(' ').toLowerCase().contains(q)).toList();
   }
 
+  Future<bool> createAdminNotice({
+    required String title,
+    required String summary,
+    required String content,
+    required bool important,
+  }) async {
+    if (title.trim().isEmpty || content.trim().isEmpty) return false;
+    try {
+      final notice = await _repository.createAdminNotice(
+        title: title.trim(),
+        summary: summary.trim(),
+        content: content.trim(),
+        important: important,
+      );
+      _notices = [notice, ..._notices];
+      errorMessage = null;
+      notifyListeners();
+      return true;
+    } catch (error) {
+      errorMessage = '공지 등록 실패: $error';
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> updateAdminNotice(
+    int noticeId, {
+    required String title,
+    required String summary,
+    required String content,
+    required bool important,
+  }) async {
+    try {
+      final updated = await _repository.updateAdminNotice(
+        noticeId,
+        title: title.trim(),
+        summary: summary.trim(),
+        content: content.trim(),
+        important: important,
+      );
+      _notices = [
+        for (final notice in _notices)
+          if (notice.id == noticeId) updated else notice,
+      ];
+      errorMessage = null;
+      notifyListeners();
+      return true;
+    } catch (error) {
+      errorMessage = '공지 수정 실패: $error';
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> deleteAdminNotice(int noticeId) async {
+    try {
+      await _repository.deleteAdminNotice(noticeId);
+      _notices = _notices.where((notice) => notice.id != noticeId).toList();
+      errorMessage = null;
+      notifyListeners();
+      return true;
+    } catch (error) {
+      errorMessage = '공지 삭제 실패: $error';
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<void> loadAdminReports({String? status}) async {
+    adminLoading = true;
+    if (status != null) adminReportFilter = status;
+    notifyListeners();
+    try {
+      final result = await _repository.fetchAdminReports(
+        status: adminReportFilter,
+      );
+      _adminReports = result.reports;
+      _adminReportSummary = result.summary;
+      errorMessage = null;
+    } catch (error) {
+      errorMessage = '신고 목록 조회 실패: $error';
+    } finally {
+      adminLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<bool> updateAdminReport(
+    int reportId, {
+    required String status,
+    String adminNote = '',
+    bool deleteContent = false,
+  }) async {
+    try {
+      await _repository.updateAdminReport(
+        reportId,
+        status: status,
+        adminNote: adminNote,
+        deleteContent: deleteContent,
+      );
+      await loadAdminReports();
+      if (deleteContent) await load(silent: true);
+      return true;
+    } catch (error) {
+      errorMessage = '신고 처리 실패: $error';
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> setAdminPostPopularity(
+    int postId, {
+    required int likeCount,
+    required int adminPopularityBoost,
+    required bool forcePopular,
+  }) async {
+    try {
+      final updated = await _repository.setAdminPostPopularity(
+        postId,
+        likeCount: likeCount,
+        adminPopularityBoost: adminPopularityBoost,
+        forcePopular: forcePopular,
+      );
+      _replacePost(updated);
+      _syncReactionSetsFromDb();
+      errorMessage = null;
+      notifyListeners();
+      return true;
+    } catch (error) {
+      errorMessage = '인기도 설정 실패: $error';
+      notifyListeners();
+      return false;
+    }
+  }
+
   Future<void> togglePostLike(int id) async {
     final wasLiked = likedPostIds.contains(id);
     try {
@@ -434,7 +740,12 @@ class CommunityProvider extends ChangeNotifier {
         rating: rating,
         content: content.trim(),
       );
-      _reviews = [review, ..._reviews];
+      _reviews = [review, ..._reviews.where((item) => item.id != review.id)];
+      _recipeReviews[review.recipeId] = <CommunityReview>[
+        review,
+        ...(_recipeReviews[review.recipeId] ?? const <CommunityReview>[])
+            .where((item) => item.id != review.id),
+      ];
       _syncReactionSetsFromDb();
       errorMessage = null;
       notifyListeners();
@@ -447,9 +758,31 @@ class CommunityProvider extends ChangeNotifier {
 
   Future<void> toggleReviewLike(int id) async {
     final wasLiked = likedReviewIds.contains(id);
+    String? recipeId;
+    for (final review in _reviews) {
+      if (review.id == id) {
+        recipeId = review.recipeId;
+        break;
+      }
+    }
+    if (recipeId == null) {
+      for (final list in _recipeReviews.values) {
+        for (final review in list) {
+          if (review.id == id) {
+            recipeId = review.recipeId;
+            break;
+          }
+        }
+        if (recipeId != null) break;
+      }
+    }
     try {
       wasLiked ? await _repository.unlikeReview(id) : await _repository.likeReview(id);
       _reviews = await _repository.fetchReviews();
+      if (recipeId != null && recipeId.isNotEmpty) {
+        _recipeReviews[recipeId] =
+            await _repository.fetchReviews(recipeId: recipeId);
+      }
       _syncReactionSetsFromDb();
     } catch (error) {
       errorMessage = '후기 좋아요 저장 실패: $error';
@@ -478,6 +811,47 @@ class CommunityProvider extends ChangeNotifier {
     } catch (error) {
       errorMessage = '답글 좋아요 저장 실패: $error';
       notifyListeners();
+    }
+  }
+
+  Future<String> uploadPostImage({
+    required Uint8List bytes,
+    required String filename,
+  }) async {
+    try {
+      final imageUrl = await _repository.uploadPostImage(
+        bytes: bytes,
+        filename: filename,
+      );
+      errorMessage = null;
+      return imageUrl;
+    } catch (error) {
+      errorMessage = '사진 업로드 실패: $error';
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<bool> setAdminPostLikes(
+    int postId, {
+    required int likeCount,
+    bool applyToPopularTest = true,
+  }) async {
+    try {
+      final updated = await _repository.setAdminPostLikes(
+        postId,
+        likeCount: likeCount,
+        applyToPopularTest: applyToPopularTest,
+      );
+      _replacePost(updated);
+      _syncReactionSetsFromDb();
+      errorMessage = null;
+      notifyListeners();
+      return true;
+    } catch (error) {
+      errorMessage = '관리자 좋아요 설정 실패: $error';
+      notifyListeners();
+      return false;
     }
   }
 
@@ -525,19 +899,23 @@ class CommunityProvider extends ChangeNotifier {
   }
 
   Future<void> reportPost(int postId) async {
-    hiddenPostIds.add(postId);
-    notifyListeners();
     try {
       await _repository.reportPost(postId);
-    } catch (_) {}
+      await refreshPost(postId);
+    } catch (error) {
+      errorMessage = '게시글 신고 실패: $error';
+      notifyListeners();
+    }
   }
 
   Future<void> blockPost(int postId) async {
-    hiddenPostIds.add(postId);
-    notifyListeners();
     try {
-      await _repository.reportPost(postId, reason: 'blocked from app');
-    } catch (_) {}
+      await _repository.blockContent(targetType: 'post', targetId: postId);
+      await load(silent: true);
+    } catch (error) {
+      errorMessage = '사용자 차단 실패: $error';
+      notifyListeners();
+    }
   }
 
   Future<void> addComment(int postId, String content) async {
@@ -572,19 +950,24 @@ class CommunityProvider extends ChangeNotifier {
   }
 
   Future<void> reportComment(int commentId) async {
-    hiddenCommentIds.add(commentId);
-    notifyListeners();
+    final postId = _postIdForComment(commentId);
     try {
       await _repository.reportComment(commentId);
-    } catch (_) {}
+      if (postId != null) await refreshPost(postId);
+    } catch (error) {
+      errorMessage = '댓글 신고 실패: $error';
+      notifyListeners();
+    }
   }
 
   Future<void> blockComment(int commentId) async {
-    hiddenCommentIds.add(commentId);
-    notifyListeners();
     try {
-      await _repository.reportComment(commentId, reason: 'blocked from app');
-    } catch (_) {}
+      await _repository.blockContent(targetType: 'comment', targetId: commentId);
+      await load(silent: true);
+    } catch (error) {
+      errorMessage = '사용자 차단 실패: $error';
+      notifyListeners();
+    }
   }
 
   Future<void> addReply(int postId, int commentId, String content) async {
@@ -619,19 +1002,24 @@ class CommunityProvider extends ChangeNotifier {
   }
 
   Future<void> reportReply(int replyId) async {
-    hiddenReplyIds.add(replyId);
-    notifyListeners();
+    final location = _locationForReply(replyId);
     try {
       await _repository.reportReply(replyId);
-    } catch (_) {}
+      if (location != null) await refreshPost(location.postId);
+    } catch (error) {
+      errorMessage = '답글 신고 실패: $error';
+      notifyListeners();
+    }
   }
 
   Future<void> blockReply(int replyId) async {
-    hiddenReplyIds.add(replyId);
-    notifyListeners();
     try {
-      await _repository.reportReply(replyId, reason: 'blocked from app');
-    } catch (_) {}
+      await _repository.blockContent(targetType: 'reply', targetId: replyId);
+      await load(silent: true);
+    } catch (error) {
+      errorMessage = '사용자 차단 실패: $error';
+      notifyListeners();
+    }
   }
 
   Future<void> markAllNotificationsRead() async {

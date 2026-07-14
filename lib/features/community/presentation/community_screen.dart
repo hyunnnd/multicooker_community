@@ -20,6 +20,7 @@ part 'pages/community_write_review_page.dart';
 part 'pages/community_post_detail_page.dart';
 part 'pages/community_notice_pages.dart';
 part 'pages/community_write_post_page.dart';
+part 'pages/community_admin_pages.dart';
 part 'widgets/community_notification_panel.dart';
 part 'widgets/community_shared_widgets.dart';
 
@@ -45,7 +46,7 @@ const _tabOrder = [
   CommunityTab.qa,
 ];
 
-enum _CommunityView { list, postDetail, noticeDetail, noticeList, writePost, editPost, writeReview }
+enum _CommunityView { list, postDetail, noticeDetail, noticeList, writePost, editPost, writeReview, admin }
 
 class _ViewState {
   const _ViewState(this.view, {this.id, this.category});
@@ -55,12 +56,22 @@ class _ViewState {
 }
 
 class CommunityScreen extends StatefulWidget {
-  const CommunityScreen({this.initialTab, this.initialRecipeId, this.initialRecipeTitle, this.initialRecipeImage, this.initialWriteReview = false, this.initialPostId, super.key});
+  const CommunityScreen({
+    this.initialTab,
+    this.initialRecipeId,
+    this.initialRecipeTitle,
+    this.initialRecipeImage,
+    this.initialReviewRating = 5,
+    this.initialWriteReview = false,
+    this.initialPostId,
+    super.key,
+  });
 
   final String? initialTab;
   final String? initialRecipeId;
   final String? initialRecipeTitle;
   final String? initialRecipeImage;
+  final int initialReviewRating;
   final bool initialWriteReview;
   final int? initialPostId;
 
@@ -87,7 +98,10 @@ class _CommunityScreenState extends State<CommunityScreen> {
         provider.setTab(CommunityTab.all);
         provider.clearReviewFilters();
       }
-      if (widget.initialPostId != null) {
+      if (widget.initialWriteReview) {
+        provider.load(silent: true);
+        _openWriteReview();
+      } else if (widget.initialPostId != null) {
         provider.load(silent: true);
         _openPost(widget.initialPostId!);
       } else {
@@ -133,7 +147,27 @@ class _CommunityScreenState extends State<CommunityScreen> {
     setState(() => _state = const _ViewState(_CommunityView.writeReview));
   }
 
+  void _closeWriteReview({bool created = false}) {
+    if (widget.initialWriteReview && context.canPop()) {
+      context.pop(created);
+      return;
+    }
+    _goList();
+  }
+
+  void _openAdmin() {
+    setState(() {
+      _state = const _ViewState(_CommunityView.admin);
+      _showNotification = false;
+    });
+  }
+
   bool _handleSystemBack() {
+    if (_state.view == _CommunityView.writeReview &&
+        widget.initialWriteReview) {
+      _closeWriteReview();
+      return true;
+    }
     if (_showNotification) {
       setState(() => _showNotification = false);
       return true;
@@ -164,7 +198,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
     final provider = context.watch<CommunityProvider>();
 
     Widget body;
-    if (provider.isLoading) {
+    if (provider.isLoading && _state.view != _CommunityView.writeReview) {
       body = const Center(child: CircularProgressIndicator(color: _orange));
     } else {
       body = switch (_state.view) {
@@ -186,6 +220,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
               context.read<CommunityProvider>().refreshNotifications();
               setState(() => _showNotification = true);
             },
+            onAdminTap: _openAdmin,
             onRecipeTap: (recipeId) => context.push('/recipes/$recipeId'),
           ),
         _CommunityView.postDetail => _PostDetailPage(
@@ -231,17 +266,34 @@ class _CommunityScreenState extends State<CommunityScreen> {
             initialRecipeId: widget.initialRecipeId ?? '',
             initialRecipeTitle: widget.initialRecipeTitle ?? '',
             initialRecipeImage: widget.initialRecipeImage ?? '',
-            onBack: _goList,
+            initialRating: widget.initialReviewRating,
+            onBack: () => _closeWriteReview(),
             onSubmit: (recipeId, recipeTitle, recipeImage, rating, content) async {
-              await context.read<CommunityProvider>().createReview(
-                    recipeId: recipeId,
-                    recipeTitle: recipeTitle,
-                    recipeImage: recipeImage,
-                    rating: rating,
-                    content: content,
-                  );
-              if (mounted) _goList();
+              try {
+                await context.read<CommunityProvider>().createReview(
+                      recipeId: recipeId,
+                      recipeTitle: recipeTitle,
+                      recipeImage: recipeImage,
+                      rating: rating,
+                      content: content,
+                    );
+                if (mounted) _closeWriteReview(created: true);
+              } catch (_) {
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      context.read<CommunityProvider>().errorMessage ??
+                          '후기를 등록하지 못했습니다.',
+                    ),
+                  ),
+                );
+              }
             },
+          ),
+        _CommunityView.admin => _CommunityAdminPage(
+            onBack: _goList,
+            onOpenPost: _openPost,
           ),
         _CommunityView.editPost => _WritePostPage(
             initialPost: provider.postById(_state.id!),

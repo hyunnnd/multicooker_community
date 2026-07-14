@@ -24,7 +24,7 @@ class AiRecipeRecommendationScreen extends StatelessWidget {
         leading: const AppBackButton(),
         title: const Text('AI 추천 결과'),
       ),
-      bottomNavigationBar: const MainNavigationBar(currentIndex: -1),
+      bottomNavigationBar: const MainNavigationBar(currentIndex: 0),
       body: result == null
           ? Center(
               child: FilledButton.icon(

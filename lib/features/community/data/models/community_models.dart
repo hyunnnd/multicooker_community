@@ -75,17 +75,20 @@ class ActivitySet {
 class CommunityReply {
   const CommunityReply({
     required this.id,
+    this.authorUserId,
     required this.username,
     required this.avatarColor,
     required this.content,
     required this.timeAgo,
     this.createdAt,
     required this.likes,
+    this.reportCount,
     this.isLiked = false,
     this.isMine = false,
   });
 
   final int id;
+  final int? authorUserId;
   final String username;
   final int avatarColor;
   final String content;
@@ -93,28 +96,33 @@ class CommunityReply {
   final DateTime? createdAt;
   String get relativeTime => communityRelativeTime(createdAt, fallback: timeAgo);
   final int likes;
+  final int? reportCount;
   final bool isLiked;
   final bool isMine;
 
   CommunityReply copyWith({
     int? id,
+    int? authorUserId,
     String? username,
     int? avatarColor,
     String? content,
     String? timeAgo,
     DateTime? createdAt,
     int? likes,
+    int? reportCount,
     bool? isLiked,
     bool? isMine,
   }) =>
       CommunityReply(
         id: id ?? this.id,
+        authorUserId: authorUserId ?? this.authorUserId,
         username: username ?? this.username,
         avatarColor: avatarColor ?? this.avatarColor,
         content: content ?? this.content,
         timeAgo: timeAgo ?? this.timeAgo,
         createdAt: createdAt ?? this.createdAt,
         likes: likes ?? this.likes,
+        reportCount: reportCount ?? this.reportCount,
         isLiked: isLiked ?? this.isLiked,
         isMine: isMine ?? this.isMine,
       );
@@ -124,6 +132,7 @@ class CommunityReply {
 class CommunityComment {
   const CommunityComment({
     required this.id,
+    this.authorUserId,
     required this.username,
     required this.avatarColor,
     required this.content,
@@ -131,11 +140,13 @@ class CommunityComment {
     this.createdAt,
     required this.likes,
     required this.replies,
+    this.reportCount,
     this.isLiked = false,
     this.isMine = false,
   });
 
   final int id;
+  final int? authorUserId;
   final String username;
   final int avatarColor;
   final String content;
@@ -143,30 +154,35 @@ class CommunityComment {
   final DateTime? createdAt;
   String get relativeTime => communityRelativeTime(createdAt, fallback: timeAgo);
   final int likes;
+  final int? reportCount;
   final bool isLiked;
   final bool isMine;
   final List<CommunityReply> replies;
 
   CommunityComment copyWith({
     int? id,
+    int? authorUserId,
     String? username,
     int? avatarColor,
     String? content,
     String? timeAgo,
     DateTime? createdAt,
     int? likes,
+    int? reportCount,
     bool? isLiked,
     bool? isMine,
     List<CommunityReply>? replies,
   }) =>
       CommunityComment(
         id: id ?? this.id,
+        authorUserId: authorUserId ?? this.authorUserId,
         username: username ?? this.username,
         avatarColor: avatarColor ?? this.avatarColor,
         content: content ?? this.content,
         timeAgo: timeAgo ?? this.timeAgo,
         createdAt: createdAt ?? this.createdAt,
         likes: likes ?? this.likes,
+        reportCount: reportCount ?? this.reportCount,
         isLiked: isLiked ?? this.isLiked,
         isMine: isMine ?? this.isMine,
         replies: replies ?? this.replies,
@@ -177,6 +193,7 @@ class CommunityComment {
 class CommunityPost {
   const CommunityPost({
     required this.id,
+    this.authorUserId,
     required this.category,
     required this.username,
     required this.avatarColor,
@@ -189,11 +206,18 @@ class CommunityPost {
     required this.activity,
     this.imageUrl,
     this.tags = const [],
+    this.reportCount,
+    this.canAdminister = false,
+    this.popularityScore = 0,
+    this.adminPopularityBoost = 0,
+    this.forcePopular = false,
+    this.isPopular = false,
     this.isLiked = false,
     this.isMine = false,
   });
 
   final int id;
+  final int? authorUserId;
   final PostCategory category;
   final String username;
   final int avatarColor;
@@ -207,6 +231,12 @@ class CommunityPost {
   final String? imageUrl;
   final List<String> tags;
   final ActivitySet activity;
+  final int? reportCount;
+  final bool canAdminister;
+  final int popularityScore;
+  final int adminPopularityBoost;
+  final bool forcePopular;
+  final bool isPopular;
   final bool isLiked;
   final bool isMine;
 
@@ -221,6 +251,7 @@ class CommunityPost {
 
   CommunityPost copyWith({
     int? id,
+    int? authorUserId,
     PostCategory? category,
     String? username,
     int? avatarColor,
@@ -233,11 +264,18 @@ class CommunityPost {
     String? imageUrl,
     List<String>? tags,
     ActivitySet? activity,
+    int? reportCount,
+    bool? canAdminister,
+    int? popularityScore,
+    int? adminPopularityBoost,
+    bool? forcePopular,
+    bool? isPopular,
     bool? isLiked,
     bool? isMine,
   }) =>
       CommunityPost(
         id: id ?? this.id,
+        authorUserId: authorUserId ?? this.authorUserId,
         category: category ?? this.category,
         username: username ?? this.username,
         avatarColor: avatarColor ?? this.avatarColor,
@@ -250,6 +288,12 @@ class CommunityPost {
         imageUrl: imageUrl ?? this.imageUrl,
         tags: tags ?? this.tags,
         activity: activity ?? this.activity,
+        reportCount: reportCount ?? this.reportCount,
+        canAdminister: canAdminister ?? this.canAdminister,
+        popularityScore: popularityScore ?? this.popularityScore,
+        adminPopularityBoost: adminPopularityBoost ?? this.adminPopularityBoost,
+        forcePopular: forcePopular ?? this.forcePopular,
+        isPopular: isPopular ?? this.isPopular,
         isLiked: isLiked ?? this.isLiked,
         isMine: isMine ?? this.isMine,
       );
@@ -259,6 +303,7 @@ class CommunityPost {
 class CommunityReview {
   const CommunityReview({
     required this.id,
+    this.authorUserId,
     required this.username,
     required this.avatarColor,
     required this.recipeTitle,
@@ -266,6 +311,7 @@ class CommunityReview {
     required this.rating,
     required this.content,
     required this.date,
+    this.createdAt,
     required this.likes,
     required this.commentCount,
     required this.recipeId,
@@ -274,9 +320,11 @@ class CommunityReview {
     this.foodCategory = '',
     this.themeTags = const [],
     this.isLiked = false,
+    this.isMine = false,
   });
 
   final int id;
+  final int? authorUserId;
   final String username;
   final int avatarColor;
   final String recipeTitle;
@@ -284,6 +332,8 @@ class CommunityReview {
   final int rating;
   final String content;
   final String date;
+  final DateTime? createdAt;
+  String get relativeTime => communityRelativeTime(createdAt, fallback: date);
   final int likes;
   final int commentCount;
   final String recipeId;
@@ -292,6 +342,7 @@ class CommunityReview {
   final String foodCategory;
   final List<String> themeTags;
   final bool isLiked;
+  final bool isMine;
 
   String get sourceLabel {
     if (recipeSource.trim().isNotEmpty) return recipeSource;
@@ -342,6 +393,7 @@ class CommunityReview {
 
   CommunityReview copyWith({int? likes, bool? isLiked}) => CommunityReview(
         id: id,
+        authorUserId: authorUserId,
         username: username,
         avatarColor: avatarColor,
         recipeTitle: recipeTitle,
@@ -349,6 +401,7 @@ class CommunityReview {
         rating: rating,
         content: content,
         date: date,
+        createdAt: createdAt,
         likes: likes ?? this.likes,
         commentCount: commentCount,
         recipeId: recipeId,
@@ -357,6 +410,46 @@ class CommunityReview {
         foodCategory: foodCategory,
         themeTags: themeTags,
         isLiked: isLiked ?? this.isLiked,
+        isMine: isMine,
+      );
+}
+
+@immutable
+class RecipeCommunityComment {
+  const RecipeCommunityComment({
+    required this.id,
+    required this.recipeId,
+    required this.recipeTitle,
+    this.authorUserId,
+    required this.username,
+    required this.avatarColor,
+    required this.content,
+    this.createdAt,
+    this.isMine = false,
+  });
+
+  final int id;
+  final String recipeId;
+  final String recipeTitle;
+  final int? authorUserId;
+  final String username;
+  final int avatarColor;
+  final String content;
+  final DateTime? createdAt;
+  final bool isMine;
+
+  String get relativeTime => communityRelativeTime(createdAt);
+
+  RecipeCommunityComment copyWith({String? content}) => RecipeCommunityComment(
+        id: id,
+        recipeId: recipeId,
+        recipeTitle: recipeTitle,
+        authorUserId: authorUserId,
+        username: username,
+        avatarColor: avatarColor,
+        content: content ?? this.content,
+        createdAt: createdAt,
+        isMine: isMine,
       );
 }
 
@@ -379,6 +472,70 @@ class CommunityNotice {
   final bool important;
 }
 
+@immutable
+class AdminCommunityReport {
+  const AdminCommunityReport({
+    required this.id,
+    required this.targetType,
+    required this.targetId,
+    required this.reason,
+    required this.status,
+    required this.reporter,
+    required this.targetTitle,
+    required this.targetContent,
+    required this.targetAuthor,
+    required this.targetReportCount,
+    required this.targetExists,
+    required this.createdAt,
+    this.adminNote = '',
+    this.processedBy = '',
+    this.processedAt,
+  });
+
+  final int id;
+  final String targetType;
+  final int targetId;
+  final String reason;
+  final String status;
+  final String reporter;
+  final String targetTitle;
+  final String targetContent;
+  final String targetAuthor;
+  final int targetReportCount;
+  final bool targetExists;
+  final DateTime? createdAt;
+  final String adminNote;
+  final String processedBy;
+  final DateTime? processedAt;
+
+  String get typeLabel => switch (targetType) {
+        'comment' => '댓글',
+        'reply' => '답글',
+        _ => '게시글',
+      };
+
+  String get statusLabel => switch (status) {
+        'resolved' => '처리 완료',
+        'rejected' => '반려',
+        _ => '미처리',
+      };
+}
+
+@immutable
+class AdminReportSummary {
+  const AdminReportSummary({
+    this.total = 0,
+    this.pending = 0,
+    this.resolved = 0,
+    this.rejected = 0,
+  });
+
+  final int total;
+  final int pending;
+  final int resolved;
+  final int rejected;
+}
+
 enum NotificationType { comment, reply }
 
 @immutable
@@ -389,6 +546,7 @@ class CommunityNotification {
     required this.fromUser,
     required this.avatarColor,
     required this.postTitle,
+    this.contextText = '',
     required this.postId,
     required this.timeAgo,
     this.createdAt,
@@ -400,10 +558,29 @@ class CommunityNotification {
   final String fromUser;
   final int avatarColor;
   final String postTitle;
+  final String contextText;
   final int postId;
   final String timeAgo;
   final DateTime? createdAt;
   String get relativeTime => communityRelativeTime(createdAt, fallback: timeAgo);
+
+  /// 알림을 발생시킨 사용자가 새로 작성한 내용을 표시합니다.
+  /// 댓글 알림은 새 댓글, 답글 알림은 새 답글 내용입니다.
+  /// 게시글 제목이나 원댓글 대신 실제 등록된 내용을 보여줍니다.
+  String get postContextText {
+    String clean(String value) => value
+        .trim()
+        .replaceAll(RegExp(r'^[|ㅣ｜\s]+'), '')
+        .replaceAll(RegExp(r'[|ㅣ｜\s]+$'), '')
+        .trim();
+
+    final context = clean(contextText);
+    if (context.isNotEmpty) return context;
+
+    final legacyTitle = clean(postTitle);
+    return legacyTitle.isEmpty ? '게시글' : legacyTitle;
+  }
+
   final bool read;
 
   CommunityNotification copyWith({bool? read}) => CommunityNotification(
@@ -412,6 +589,7 @@ class CommunityNotification {
         fromUser: fromUser,
         avatarColor: avatarColor,
         postTitle: postTitle,
+        contextText: contextText,
         postId: postId,
         timeAgo: timeAgo,
         createdAt: createdAt,

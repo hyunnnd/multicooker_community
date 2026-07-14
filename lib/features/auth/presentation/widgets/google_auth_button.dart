@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -23,11 +24,20 @@ class _GoogleAuthButtonState extends State<GoogleAuthButton> {
     setState(() => _opening = true);
     try {
       final uri = ApiConstants.authUri(ApiConstants.googleLogin);
+      if (kDebugMode) {
+        debugPrint('[Google Auth] 로그인 페이지 열기: $uri');
+      }
       final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (kDebugMode) {
+        debugPrint('[Google Auth] 외부 브라우저 실행 여부: $opened');
+      }
       if (!opened && mounted) {
         _showError('구글 로그인 페이지를 열 수 없습니다.');
       }
-    } catch (_) {
+    } catch (error) {
+      if (kDebugMode) {
+        debugPrint('[Google Auth] 로그인 페이지 실행 실패: $error');
+      }
       if (mounted) _showError('구글 로그인을 시작하지 못했습니다.');
     } finally {
       if (mounted) setState(() => _opening = false);

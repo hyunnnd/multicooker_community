@@ -1,6 +1,6 @@
 class ApiConstants {
-  /// Local app/API server used by community, recipes, AI recommendation, device
-  /// verification, and other DB-backed prototype features.
+  /// Personal app/API server used by community, personal recipes, saved recipes,
+  /// cooking history, AI recommendation, device verification, and settings.
   ///
   /// Galaxy phone and Chrome must be on the same Wi-Fi as this host when using
   /// the default value below. Change it with --dart-define=API_BASE_URL=...
@@ -9,8 +9,7 @@ class ApiConstants {
     defaultValue: 'http://192.1.0.28:8001',
   );
 
-  /// Company server used by authentication and personal recipe APIs.
-  /// Recipe upload/list calls use the same authenticated access token.
+  /// Company server used only for authentication-related APIs.
   ///
   /// Change it with --dart-define=AUTH_API_BASE_URL=...
   static const authBaseUrl = String.fromEnvironment(

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../../recipe/data/models/recipe.dart';
 import '../../recipe/provider/recipe_provider.dart';
 import '../data/profile_models.dart';
 import '../provider/profile_provider.dart';
@@ -24,12 +25,19 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => context.read<ProfileProvider>().loadMyRecipes());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _reload());
+  }
+
+  Future<void> _reload() async {
+    // 이 화면의 유일한 데이터 소스는 현재 로그인 사용자의
+    // GET /users/me/recipes 응답입니다.
+    await context.read<RecipeProvider>().loadMyRecipes();
   }
 
   @override
   Widget build(BuildContext context) {
-    final profile = context.watch<ProfileProvider>();
+    final recipeProvider = context.watch<RecipeProvider>();
+    final myRecipes = recipeProvider.personalRecipes;
     return _PageScaffold(
       title: '내가 올린 레시피',
       actions: [
@@ -47,10 +55,10 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> {
         label: const Text('레시피 등록'),
       ),
       child: _AsyncBody(
-        loading: profile.isLoading && profile.myRecipes.isEmpty,
-        error: profile.errorMessage,
-        onRefresh: () => context.read<ProfileProvider>().loadMyRecipes(),
-        child: profile.myRecipes.isEmpty
+        loading: recipeProvider.isLoading && myRecipes.isEmpty,
+        error: recipeProvider.errorMessage,
+        onRefresh: _reload,
+        child: myRecipes.isEmpty
             ? _EmptyState(
                 icon: Icons.restaurant_menu,
                 title: '등록한 레시피가 없습니다',
@@ -58,13 +66,7 @@ class _MyRecipesScreenState extends State<MyRecipesScreen> {
                 actionLabel: '레시피 등록하기',
                 onAction: () => context.push('/my/recipes/new'),
               )
-            : _RecipeList(
-                items: profile.myRecipes,
-                trailingBuilder: (item) => const Icon(
-                  Icons.chevron_right,
-                  color: _muted,
-                ),
-              ),
+            : _PersonalRecipeList(items: myRecipes),
       ),
     );
   }
@@ -366,12 +368,12 @@ class _CookingHistoryScreenState extends State<CookingHistoryScreen> {
                                 .read<ProfileProvider>()
                                 .saveHistoryAsRecipe(item.id);
                             if (context.mounted && ok) {
-                              await context.read<RecipeProvider>().loadRecipes();
+                              await context.read<RecipeProvider>().loadMyRecipes();
                             }
                             if (context.mounted && ok) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
-                                  content: Text('회사 개인 레시피로 저장했습니다.'),
+                                  content: Text('개인 레시피로 저장했습니다.'),
                                 ),
                               );
                             }
@@ -439,6 +441,91 @@ class _MiniPill extends StatelessWidget {
       );
 }
 
+class _PersonalRecipeList extends StatelessWidget {
+  const _PersonalRecipeList({required this.items});
+
+  final List<Recipe> items;
+
+  @override
+  Widget build(BuildContext context) => ListView.separated(
+        padding: const EdgeInsets.all(16),
+        itemCount: items.length,
+        separatorBuilder: (_, __) => const SizedBox(height: 10),
+        itemBuilder: (context, index) {
+          final recipe = items[index];
+          final maxTemperature = recipe.cookerSteps.isEmpty
+              ? 0
+              : recipe.cookerSteps
+                  .map((step) => step.temperature)
+                  .reduce((a, b) => a > b ? a : b);
+          return _Card(
+            child: ListTile(
+              contentPadding: const EdgeInsets.all(12),
+              leading: _RecipeThumb(url: recipe.thumbnailUrl),
+              title: Text(
+                recipe.title,
+                style: const TextStyle(fontWeight: FontWeight.w900),
+              ),
+              subtitle: Text(
+                '${maxTemperature == 0 ? '-' : '$maxTemperature℃'} · ${recipe.totalTimeMin}분\n${recipe.author}',
+                maxLines: 2,
+              ),
+              isThreeLine: true,
+              trailing: PopupMenuButton<String>(
+                tooltip: '레시피 관리',
+                onSelected: (value) async {
+                  if (value == 'edit') {
+                    await context.push(
+                      '/my/recipes/${Uri.encodeComponent(recipe.id)}/edit',
+                      extra: recipe,
+                    );
+                    if (context.mounted) {
+                      await context.read<RecipeProvider>().loadMyRecipes();
+                    }
+                    return;
+                  }
+                  if (value != 'delete') return;
+                  await _confirm(
+                    context,
+                    title: '레시피 삭제',
+                    message: '이 레시피를 삭제하시겠습니까?',
+                    onOk: () => context
+                        .read<RecipeProvider>()
+                        .deleteMyRecipe(recipe.id),
+                  );
+                },
+                itemBuilder: (_) => const [
+                  PopupMenuItem(
+                    value: 'edit',
+                    child: Row(
+                      children: [
+                        Icon(Icons.edit_outlined, size: 20),
+                        SizedBox(width: 8),
+                        Text('수정'),
+                      ],
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'delete',
+                    child: Row(
+                      children: [
+                        Icon(Icons.delete_outline, color: _danger, size: 20),
+                        SizedBox(width: 8),
+                        Text('삭제', style: TextStyle(color: _danger)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              onTap: () => context.push(
+                '/recipes/${Uri.encodeComponent(recipe.id)}',
+              ),
+            ),
+          );
+        },
+      );
+}
+
 class _RecipeList extends StatelessWidget {
   const _RecipeList({required this.items, required this.trailingBuilder});
   final List<ProfileRecipeItem> items;
@@ -459,7 +546,25 @@ class _RecipeList extends StatelessWidget {
               subtitle: Text('${recipe.maxTemperature}℃ · ${recipe.totalTimeMin}분\n${recipe.author}', maxLines: 2),
               isThreeLine: true,
               trailing: trailingBuilder(recipe),
-              onTap: () => context.push('/recipes/${recipe.id}'),
+              onTap: () async {
+                final recipeProvider = context.read<RecipeProvider>();
+                final found = await recipeProvider.ensureRecipeLoaded(recipe.id);
+                if (!context.mounted) return;
+                if (!found) {
+                  ScaffoldMessenger.of(context)
+                    ..hideCurrentSnackBar()
+                    ..showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          recipeProvider.errorMessage ??
+                              '레시피 상세 정보를 불러오지 못했습니다. 다시 시도해 주십시오.',
+                        ),
+                      ),
+                    );
+                  return;
+                }
+                context.push('/recipes/${Uri.encodeComponent(recipe.id)}');
+              },
             ),
           );
         },

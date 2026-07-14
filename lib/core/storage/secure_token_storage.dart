@@ -8,13 +8,20 @@ class SecureTokenStorage {
 
   static const _apiAccessTokenKey = 'api_access_token';
   static const _apiRefreshTokenKey = 'api_refresh_token';
+  static const _apiAccountEmailKey = 'api_account_email';
   static const _authAccessTokenKey = 'auth_access_token';
   static const _authRefreshTokenKey = 'auth_refresh_token';
 
-  Future<String?> readApiAccessToken() => _storage.read(key: _apiAccessTokenKey);
-  Future<String?> readApiRefreshToken() => _storage.read(key: _apiRefreshTokenKey);
-  Future<String?> readAuthAccessToken() => _storage.read(key: _authAccessTokenKey);
-  Future<String?> readAuthRefreshToken() => _storage.read(key: _authRefreshTokenKey);
+  Future<String?> readApiAccessToken() =>
+      _storage.read(key: _apiAccessTokenKey);
+  Future<String?> readApiRefreshToken() =>
+      _storage.read(key: _apiRefreshTokenKey);
+  Future<String?> readApiAccountEmail() =>
+      _storage.read(key: _apiAccountEmailKey);
+  Future<String?> readAuthAccessToken() =>
+      _storage.read(key: _authAccessTokenKey);
+  Future<String?> readAuthRefreshToken() =>
+      _storage.read(key: _authRefreshTokenKey);
 
   Future<void> saveApiTokens({
     required String accessToken,
@@ -22,6 +29,15 @@ class SecureTokenStorage {
   }) async {
     await _storage.write(key: _apiAccessTokenKey, value: accessToken);
     await _storage.write(key: _apiRefreshTokenKey, value: refreshToken);
+  }
+
+  Future<void> saveApiAccountEmail(String email) async {
+    final normalized = email.trim().toLowerCase();
+    if (normalized.isEmpty) {
+      await _storage.delete(key: _apiAccountEmailKey);
+      return;
+    }
+    await _storage.write(key: _apiAccountEmailKey, value: normalized);
   }
 
   Future<void> saveAuthTokens({
@@ -35,6 +51,7 @@ class SecureTokenStorage {
   Future<void> clearApiTokens() async {
     await _storage.delete(key: _apiAccessTokenKey);
     await _storage.delete(key: _apiRefreshTokenKey);
+    await _storage.delete(key: _apiAccountEmailKey);
   }
 
   Future<void> clearAuthTokens() async {

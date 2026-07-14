@@ -31,6 +31,8 @@ class _WritePostPageState extends State<_WritePostPage> {
 
   Uint8List? _previewBytes;
   String? _previewImage;
+  String? _pickedFilename;
+  bool _imageRemoved = false;
   bool _submitting = false;
 
   bool get _isEdit => widget.initialPost != null;
@@ -66,7 +68,11 @@ class _WritePostPageState extends State<_WritePostPage> {
   }
 
   Future<void> _pickImage() async {
-    final picked = await _imagePicker.pickImage(source: ImageSource.gallery);
+    final picked = await _imagePicker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 1920,
+      imageQuality: 85,
+    );
     if (picked == null) return;
 
     final bytes = await picked.readAsBytes();
@@ -74,7 +80,9 @@ class _WritePostPageState extends State<_WritePostPage> {
 
     setState(() {
       _previewBytes = bytes;
-      _previewImage = picked.path;
+      _pickedFilename = picked.name;
+      _previewImage = null;
+      _imageRemoved = false;
     });
   }
 
@@ -82,14 +90,34 @@ class _WritePostPageState extends State<_WritePostPage> {
     if (!_canSubmit) return;
 
     setState(() => _submitting = true);
-    await widget.onSubmit(
-      _category,
-      _title.text.trim(),
-      _content.text.trim(),
-      _previewImage,
-    );
+    try {
+      var imageUrl = _previewImage;
+      if (_previewBytes != null) {
+        imageUrl = await context.read<CommunityProvider>().uploadPostImage(
+              bytes: _previewBytes!,
+              filename: _pickedFilename ?? 'community.jpg',
+            );
+      } else if (_imageRemoved) {
+        imageUrl = '';
+      }
 
-    if (mounted) setState(() => _submitting = false);
+      await widget.onSubmit(
+        _category,
+        _title.text.trim(),
+        _content.text.trim(),
+        imageUrl,
+      );
+    } catch (_) {
+      if (mounted) {
+        final message = context.read<CommunityProvider>().errorMessage ??
+            '사진을 업로드하지 못했습니다.';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(message)),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
   }
 
   InputDecoration _plainInputDecoration({
@@ -304,7 +332,8 @@ class _WritePostPageState extends State<_WritePostPage> {
                       ),
                     ),
 
-                    if (_previewImage != null && _previewImage!.isNotEmpty)
+                    if (_previewBytes != null ||
+                        (_previewImage != null && _previewImage!.isNotEmpty))
                       Container(
                         color: Colors.white,
                         padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
@@ -332,6 +361,8 @@ class _WritePostPageState extends State<_WritePostPage> {
                                 onTap: () => setState(() {
                                   _previewImage = null;
                                   _previewBytes = null;
+                                  _pickedFilename = null;
+                                  _imageRemoved = _isEdit;
                                 }),
                                 child: Container(
                                   width: 24,
