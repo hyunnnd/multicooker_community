@@ -70,7 +70,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _MyMenu('✍️', '내가 쓴 후기', '작성한 후기 모아보기', () => context.push('/my/reviews')),
       _MyMenu('💬', '내가 쓴 댓글', '댓글 내역', () => context.push('/my/comments')),
       _MyMenu('🕐', '조리 이력', '지난 조리 기록', () => context.push('/my/cooking-history')),
-      _MyMenu('⚙️', '기기 관리', '쿠커 연결 설정', () => context.go('/device')),
+      _MyMenu('⚙️', '기기 관리', '쿠커 연결 설정', () => context.push('/device')),
       _MyMenu('🔧', '설정', '알림, 언어, 계정', () => context.push('/settings/app')),
       _MyMenu('🎓', '튜토리얼 다시 보기', '앱 기능을 처음부터 다시 안내받습니다', () => context.push('/my/tutorial')),
     ];

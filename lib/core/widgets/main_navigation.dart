@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../language/language_provider.dart';
+import 'app_back_paths.dart';
 
 class MainNavigationBar extends StatelessWidget {
   const MainNavigationBar({required this.currentIndex, super.key});
@@ -92,7 +93,9 @@ class _NavItem {
 }
 
 class AppBackButton extends StatelessWidget {
-  const AppBackButton({super.key});
+  const AppBackButton({this.fallbackPath, super.key});
+
+  final String? fallbackPath;
 
   @override
   Widget build(BuildContext context) {
@@ -100,7 +103,14 @@ class AppBackButton extends StatelessWidget {
       tooltip: '뒤로가기',
       icon: const Icon(Icons.arrow_back),
       color: const Color(0xFF6B7280),
-      onPressed: () => context.canPop() ? context.pop() : context.go('/home'),
+      onPressed: () {
+        if (context.canPop()) {
+          context.pop();
+          return;
+        }
+        final currentPath = GoRouterState.of(context).uri.path;
+        context.go(fallbackPath ?? appBackFallbackForPath(currentPath));
+      },
     );
   }
 }

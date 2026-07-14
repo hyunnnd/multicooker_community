@@ -153,6 +153,10 @@ class _RecipeUploadScreenState extends State<RecipeUploadScreen> {
         RecipeStep(
           temperature: double.parse(stage.temperature.text),
           timeOffset: elapsedSeconds.toDouble(),
+          title: stage.title.text.trim(),
+          description: stage.description.text.trim(),
+          imageUrl: stage.imageUrl,
+          localImagePath: stage.imagePath,
         ),
       );
     }
@@ -399,6 +403,7 @@ class _UploadStage {
         : '${cookerStep.temperature}°C에서 ${cookerStep.timeMin}분 조리합니다.';
     temperature.text = cookerStep.temperature.toString();
     minutes.text = cookerStep.timeMin.toString();
+    imageUrl = instructionStep?.imageUrl;
   }
 
   final title = TextEditingController();
@@ -406,6 +411,11 @@ class _UploadStage {
   final temperature = TextEditingController(text: '180');
   final minutes = TextEditingController(text: '10');
   String? imagePath;
+  String? imageUrl;
+
+  bool get hasImage =>
+      (imagePath?.trim().isNotEmpty ?? false) ||
+      (imageUrl?.trim().isNotEmpty ?? false);
 
   void dispose() {
     title.dispose();
@@ -742,15 +752,31 @@ class _PreviewPage extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      if (stages[i].imagePath != null) ...[
+                      if (stages[i].hasImage) ...[
                         ClipRRect(
                           borderRadius: BorderRadius.circular(10),
-                          child: Image.file(
-                            File(stages[i].imagePath!),
-                            height: 120,
-                            width: double.infinity,
-                            fit: BoxFit.cover,
-                          ),
+                          child: stages[i].imagePath != null
+                              ? Image.file(
+                                  File(stages[i].imagePath!),
+                                  height: 120,
+                                  width: double.infinity,
+                                  fit: BoxFit.cover,
+                                )
+                              : Image.network(
+                                  stages[i].imageUrl!,
+                                  height: 120,
+                                  width: double.infinity,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, _, _) => Container(
+                                    height: 120,
+                                    color: figmaGray100,
+                                    alignment: Alignment.center,
+                                    child: const Icon(
+                                      Icons.broken_image_outlined,
+                                      color: figmaGray400,
+                                    ),
+                                  ),
+                                ),
                         ),
                         const SizedBox(height: 10),
                       ],
@@ -827,6 +853,7 @@ class _StageCard extends StatelessWidget {
     );
     if (image == null) return;
     stage.imagePath = image.path;
+    stage.imageUrl = null;
     onChanged();
   }
 
@@ -885,7 +912,7 @@ class _StageCard extends StatelessWidget {
             borderRadius: BorderRadius.circular(14),
             onTap: _pickImage,
             child: Container(
-              height: stage.imagePath == null ? 92 : 150,
+              height: stage.hasImage ? 150 : 92,
               width: double.infinity,
               decoration: BoxDecoration(
                 color: Colors.white,
@@ -897,7 +924,7 @@ class _StageCard extends StatelessWidget {
                 ),
               ),
               clipBehavior: Clip.antiAlias,
-              child: stage.imagePath == null
+              child: !stage.hasImage
                   ? Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
@@ -918,7 +945,25 @@ class _StageCard extends StatelessWidget {
                   : Stack(
                       fit: StackFit.expand,
                       children: [
-                        Image.file(File(stage.imagePath!), fit: BoxFit.cover),
+                        if (stage.imagePath != null)
+                          Image.file(
+                            File(stage.imagePath!),
+                            fit: BoxFit.cover,
+                          )
+                        else
+                          Image.network(
+                            stage.imageUrl!,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, _, _) => const ColoredBox(
+                              color: figmaGray100,
+                              child: Center(
+                                child: Icon(
+                                  Icons.broken_image_outlined,
+                                  color: figmaGray400,
+                                ),
+                              ),
+                            ),
+                          ),
                         Positioned(
                           right: 8,
                           top: 8,

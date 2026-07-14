@@ -7,6 +7,8 @@ class MainRouteBackScope extends StatefulWidget {
     required this.child,
     this.onBackPressed,
     this.backToHomeWhenUnhandled = false,
+    this.fallbackPath,
+    this.popCurrentRouteFirst = false,
     this.exitMessage = '한 번 더 뒤로가기 누르면 앱이 종료됩니다.',
     super.key,
   });
@@ -14,6 +16,8 @@ class MainRouteBackScope extends StatefulWidget {
   final Widget child;
   final bool Function()? onBackPressed;
   final bool backToHomeWhenUnhandled;
+  final String? fallbackPath;
+  final bool popCurrentRouteFirst;
   final String exitMessage;
 
   @override
@@ -26,6 +30,17 @@ class _MainRouteBackScopeState extends State<MainRouteBackScope> {
   void _handleBackPressed() {
     final handled = widget.onBackPressed?.call() ?? false;
     if (handled) return;
+
+    if (widget.popCurrentRouteFirst && context.canPop()) {
+      context.pop();
+      return;
+    }
+
+    final fallbackPath = widget.fallbackPath;
+    if (fallbackPath != null && fallbackPath.isNotEmpty) {
+      context.go(fallbackPath);
+      return;
+    }
 
     if (widget.backToHomeWhenUnhandled) {
       context.go('/home');

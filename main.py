@@ -701,6 +701,9 @@ class DeviceVerifyRequest(BaseModel):
 class RecipeStepIn(BaseModel):
     temperature: float
     time_offset: float
+    title: Optional[str] = None
+    description: Optional[str] = None
+    image_url: Optional[str] = None
 
 class UploadRecipeRequest(BaseModel):
     title: str
@@ -1755,6 +1758,16 @@ def patch_my_recipe(
     row.title = title
     row.description = data.description
     row.author = user.nickname or _display_name_for_email(user.email)
+    row.instruction_steps_json = json.dumps(
+        _instruction_steps_from_upload(row, data.steps), ensure_ascii=False
+    )
+    row.total_time_min = max(1, int((max(step.time_offset for step in data.steps) + 59) // 60))
+    first_image = next(
+        ((step.image_url or "").strip() for step in data.steps if (step.image_url or "").strip()),
+        None,
+    )
+    if first_image:
+        row.thumbnail_url = first_image
     row.updated_at = datetime.utcnow()
     session.add(row)
 
@@ -2258,6 +2271,15 @@ def upload_recipe(data: UploadRecipeRequest, session: Session = Depends(get_sess
     session.add(recipe)
     session.commit()
     session.refresh(recipe)
+    recipe.instruction_steps_json = json.dumps(
+        _instruction_steps_from_upload(recipe, data.steps), ensure_ascii=False
+    )
+    recipe.total_time_min = max(1, int((max(step.time_offset for step in data.steps) + 59) // 60))
+    recipe.thumbnail_url = next(
+        ((step.image_url or "").strip() for step in data.steps if (step.image_url or "").strip()),
+        None,
+    )
+    session.add(recipe)
     for index, step in enumerate(data.steps, start=1):
         session.add(
             RecipeStepRecord(
@@ -2395,6 +2417,70 @@ def upload_complete(data: UploadCompleteRequest, session: Session = Depends(get_
         original_filename=data.original_filename,
         content_type=data.content_type,
     )
+
+@app.post("/recipe/uploads/image")
+async def upload_recipe_step_image(
+    request: Request,
+    file: UploadFile = File(...),
+    user: User = Depends(_current_user),
+):
+    del user  # 인증된 사용자만 업로드할 수 있도록 의존성만 사용합니다.
+    original_name = _safe_filename(file.filename or "recipe-step.jpg")
+    extension = Path(original_name).suffix.lower()
+    allowed_extensions = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+    allowed_content_types = {
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+        "image/gif",
+        "application/octet-stream",
+    }
+    if extension not in allowed_extensions or (file.content_type or "") not in allowed_content_types:
+        raise HTTPException(status_code=400, detail="JPG, PNG, WEBP, GIF 이미지만 업로드할 수 있습니다.")
+
+    max_size = 8 * 1024 * 1024
+    content = await file.read(max_size + 1)
+    if len(content) > max_size:
+        raise HTTPException(status_code=413, detail="이미지는 8MB 이하만 업로드할 수 있습니다.")
+    if not content:
+        raise HTTPException(status_code=400, detail="빈 이미지 파일입니다.")
+
+    key = (
+        f"recipes/steps/{datetime.utcnow().strftime('%Y/%m/%d')}/"
+        f"{secrets.token_hex(12)}{extension}"
+    )
+    path = _local_file_path(key)
+    with open(path, "wb") as output:
+        output.write(content)
+
+    return {
+        "image_url": str(request.url_for("local_s3_get", s3_key=key)),
+        "size": len(content),
+        "filename": original_name,
+    }
+
+
+def _instruction_steps_from_upload(recipe: RecipeRecord, steps: list[RecipeStepIn]) -> list[dict]:
+    public_id = _recipe_public_id(recipe)
+    result: list[dict] = []
+    for index, step in enumerate(steps, start=1):
+        title = (step.title or "").strip() or f"{index}단계"
+        description = (step.description or "").strip()
+        if not description:
+            previous_offset = 0 if index == 1 else max(0, float(steps[index - 2].time_offset))
+            duration_seconds = max(60, float(step.time_offset) - previous_offset)
+            description = f"{int(round(step.temperature))}°C에서 {max(1, int((duration_seconds + 59) // 60))}분 조리합니다."
+        result.append({
+            "id": f"{public_id}-i{index}",
+            "step_no": index,
+            "title": title,
+            "description": description,
+            "image_url": (step.image_url or "").strip() or None,
+            "requires_user_action": False,
+            "linked_cooker_step_id": f"{public_id}-c{index}",
+        })
+    return result
+
 
 # -----------------------------------------------------------------------------
 # Community APIs

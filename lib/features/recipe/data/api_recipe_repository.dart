@@ -40,13 +40,16 @@ class ApiRecipeRepository extends RecipeRepository {
     String? description,
     required List<RecipeStep> steps,
   }) async {
+    final uploadedSteps = await _uploadLocalStepImages(steps);
     final response = await _localDio.post<Map<String, dynamic>>(
       '/recipe/upload',
       data: {
         'title': title,
         if (description?.trim().isNotEmpty ?? false)
           'description': description,
-        'steps': steps.map((step) => step.toJson()).toList(growable: false),
+        'steps': uploadedSteps
+            .map((step) => step.toJson())
+            .toList(growable: false),
       },
     );
 
@@ -68,13 +71,16 @@ class ApiRecipeRepository extends RecipeRepository {
     if (numericId == null) {
       throw ArgumentError('수정할 레시피 ID가 올바르지 않습니다: $recipeId');
     }
+    final uploadedSteps = await _uploadLocalStepImages(steps);
     final response = await _localDio.patch<Map<String, dynamic>>(
       '/users/me/recipes/$numericId',
       data: {
         'title': title,
         if (description?.trim().isNotEmpty ?? false)
           'description': description,
-        'steps': steps.map((step) => step.toJson()).toList(growable: false),
+        'steps': uploadedSteps
+            .map((step) => step.toJson())
+            .toList(growable: false),
       },
     );
     final raw = response.data?['recipe'];
@@ -82,6 +88,35 @@ class ApiRecipeRepository extends RecipeRepository {
       throw StateError('수정된 레시피 응답이 없습니다.');
     }
     return _fromMyRecipeApi(Map<String, dynamic>.from(raw), 0);
+  }
+
+  Future<List<RecipeStep>> _uploadLocalStepImages(
+    List<RecipeStep> steps,
+  ) async {
+    final result = <RecipeStep>[];
+    for (final step in steps) {
+      final path = step.localImagePath?.trim();
+      if (path == null || path.isEmpty) {
+        result.add(step);
+        continue;
+      }
+
+      final fileName = path.split(RegExp(r'[/\\]')).last;
+      final response = await _localDio.post<Map<String, dynamic>>(
+        '/recipe/uploads/image',
+        data: FormData.fromMap({
+          'file': await MultipartFile.fromFile(path, filename: fileName),
+        }),
+      );
+      final imageUrl = response.data?['image_url']?.toString().trim();
+      if (imageUrl == null || imageUrl.isEmpty) {
+        throw StateError('단계 사진 업로드 주소를 받지 못했습니다.');
+      }
+      result.add(
+        step.copyWith(imageUrl: imageUrl, clearLocalImagePath: true),
+      );
+    }
+    return result;
   }
 
   @override
@@ -302,6 +337,7 @@ class ApiRecipeRepository extends RecipeRepository {
         (json['description'] ?? '사용자가 등록한 멀티쿠커 레시피입니다.')
             .toString();
     final instructionTexts = _instructionTexts(rawDescription);
+    final rawInstructionSteps = _mapList(json['instruction_steps']);
     final totalMinutes = cookerSteps.fold<int>(
       0,
       (sum, step) => sum + step.timeMin,
@@ -323,13 +359,28 @@ class ApiRecipeRepository extends RecipeRepository {
       instructionSteps: [
         for (var stepIndex = 0; stepIndex < cookerSteps.length; stepIndex++)
           RecipeInstructionStep(
-            id: '$id-i$stepIndex',
+            id: stepIndex < rawInstructionSteps.length
+                ? (rawInstructionSteps[stepIndex]['id'] ?? '$id-i$stepIndex')
+                      .toString()
+                : '$id-i$stepIndex',
             stepNo: stepIndex + 1,
-            title:
-                instructionTexts[stepIndex]?.$1 ?? cookerSteps[stepIndex].label,
-            description:
-                instructionTexts[stepIndex]?.$2 ??
-                '${cookerSteps[stepIndex].temperature}°C에서 ${cookerSteps[stepIndex].timeMin}분 조리합니다.',
+            title: stepIndex < rawInstructionSteps.length
+                ? (rawInstructionSteps[stepIndex]['title'] ??
+                          instructionTexts[stepIndex]?.$1 ??
+                          cookerSteps[stepIndex].label)
+                      .toString()
+                : instructionTexts[stepIndex]?.$1 ??
+                      cookerSteps[stepIndex].label,
+            description: stepIndex < rawInstructionSteps.length
+                ? (rawInstructionSteps[stepIndex]['description'] ??
+                          instructionTexts[stepIndex]?.$2 ??
+                          '${cookerSteps[stepIndex].temperature}°C에서 ${cookerSteps[stepIndex].timeMin}분 조리합니다.')
+                      .toString()
+                : instructionTexts[stepIndex]?.$2 ??
+                      '${cookerSteps[stepIndex].temperature}°C에서 ${cookerSteps[stepIndex].timeMin}분 조리합니다.',
+            imageUrl: stepIndex < rawInstructionSteps.length
+                ? _nullableString(rawInstructionSteps[stepIndex]['image_url'])
+                : null,
             linkedCookerStepId: cookerSteps[stepIndex].id,
           ),
       ],

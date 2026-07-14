@@ -1,3 +1,4 @@
+import 'package:flutter/widgets.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 
@@ -28,6 +29,21 @@ import '../../features/recipe/presentation/recipe_upload_screen.dart';
 import '../../features/recipe/provider/recipe_provider.dart';
 import '../../features/settings/presentation/settings_screen.dart';
 import '../../features/splash/presentation/splash_screen.dart';
+import '../widgets/app_back_paths.dart';
+import '../widgets/main_route_back_scope.dart';
+
+
+Widget _withBackFallback(
+  GoRouterState state,
+  Widget child, {
+  String? fallbackPath,
+}) {
+  return MainRouteBackScope(
+    popCurrentRouteFirst: true,
+    fallbackPath: fallbackPath ?? appBackFallbackForPath(state.uri.path),
+    child: child,
+  );
+}
 
 final appRouter = GoRouter(
   initialLocation: '/',
@@ -64,72 +80,100 @@ final appRouter = GoRouter(
       ),
     ),
     GoRoute(path: '/home', builder: (_, _) => const HomeScreen()),
-    GoRoute(path: '/pet-test', builder: (_, _) => const PetTestScreen()),
-    GoRoute(path: '/device', builder: (_, _) => const DeviceScreen()),
+    GoRoute(
+      path: '/pet-test',
+      builder: (_, state) =>
+          _withBackFallback(state, const PetTestScreen()),
+    ),
+    GoRoute(
+      path: '/device',
+      builder: (_, state) =>
+          _withBackFallback(state, const DeviceScreen()),
+    ),
     GoRoute(path: '/recipes', builder: (_, _) => const RecipeListScreen()),
     GoRoute(
       path: '/recipes/upload',
-      builder: (_, _) => const RecipeUploadScreen(),
+      builder: (_, state) =>
+          _withBackFallback(state, const RecipeUploadScreen()),
     ),
     GoRoute(
       path: '/recipes/search',
-      builder: (_, _) => const RecipeSearchScreen(),
+      builder: (_, state) =>
+          _withBackFallback(state, const RecipeSearchScreen()),
     ),
     GoRoute(
       path: '/recipes/cook-method',
-      builder: (_, _) => const CookMethodScreen(),
+      builder: (_, state) =>
+          _withBackFallback(state, const CookMethodScreen()),
     ),
     GoRoute(
       path: '/recipes/food-type',
-      builder: (_, _) => const FoodTypeScreen(),
+      builder: (_, state) =>
+          _withBackFallback(state, const FoodTypeScreen()),
     ),
     GoRoute(
       path: '/recipes/themes',
-      builder: (_, _) => const ThemeSelectScreen(),
+      builder: (_, state) =>
+          _withBackFallback(state, const ThemeSelectScreen()),
     ),
     GoRoute(
       path: '/recipes/browse',
-      builder: (_, state) => RecipeBrowseListScreen(
-        title: state.uri.queryParameters['title'] ?? '레시피',
-        type: state.uri.queryParameters['type'] ?? '전체',
+      builder: (_, state) => _withBackFallback(
+        state,
+        RecipeBrowseListScreen(
+          title: state.uri.queryParameters['title'] ?? '레시피',
+          type: state.uri.queryParameters['type'] ?? '전체',
+        ),
       ),
     ),
     GoRoute(
       path: '/recipes/results',
-      builder: (_, state) =>
-          RecipeResultsScreen(query: state.uri.queryParameters['q'] ?? ''),
+      builder: (_, state) => _withBackFallback(
+        state,
+        RecipeResultsScreen(query: state.uri.queryParameters['q'] ?? ''),
+      ),
     ),
     GoRoute(
       path: '/recipes/:id',
-      builder: (_, state) =>
-          RecipeDetailScreen(recipeId: state.pathParameters['id']!),
+      builder: (_, state) => _withBackFallback(
+        state,
+        RecipeDetailScreen(recipeId: state.pathParameters['id']!),
+      ),
     ),
     GoRoute(
       path: '/recipes/:id/prepare',
-      builder: (_, state) =>
-          CookingPreparationScreen(recipeId: state.pathParameters['id']!),
+      builder: (_, state) => _withBackFallback(
+        state,
+        CookingPreparationScreen(recipeId: state.pathParameters['id']!),
+      ),
     ),
     GoRoute(
       path: '/recipes/:id/cook',
-      builder: (_, state) =>
-          RecipeCookingFlowScreen(recipeId: state.pathParameters['id']!),
+      builder: (_, state) => _withBackFallback(
+        state,
+        RecipeCookingFlowScreen(recipeId: state.pathParameters['id']!),
+      ),
     ),
     GoRoute(
       path: '/cooking',
-      builder: (_, _) => const RecipeCookingFlowScreen(),
+      builder: (_, state) =>
+          _withBackFallback(state, const RecipeCookingFlowScreen()),
     ),
     GoRoute(
       path: '/cooking/complete',
-      builder: (_, _) => const CookingCompleteScreen(),
+      builder: (_, state) =>
+          _withBackFallback(state, const CookingCompleteScreen()),
     ),
     GoRoute(path: '/ai', redirect: (_, _) => '/ai-scan'),
     GoRoute(
       path: '/ai-scan',
-      builder: (_, _) => const AiIngredientScanScreen(),
+      builder: (_, state) =>
+          _withBackFallback(state, const AiIngredientScanScreen()),
     ),
     GoRoute(
       path: '/ai-recommendations',
-      builder: (_, _) => const AiRecipeRecommendationScreen(),
+      builder: (_, state) =>
+          _withBackFallback(state, const AiRecipeRecommendationScreen()),
     ),
     GoRoute(
       path: '/community',
@@ -147,12 +191,20 @@ final appRouter = GoRouter(
     GoRoute(path: '/settings', builder: (_, _) => const SettingsScreen()),
     GoRoute(
       path: '/settings/app',
-      builder: (_, _) => const AppSettingsScreen(),
+      builder: (_, state) =>
+          _withBackFallback(state, const AppSettingsScreen()),
     ),
-    GoRoute(path: '/my/recipes', builder: (_, _) => const MyRecipesScreen()),
+    GoRoute(
+      path: '/my/recipes',
+      builder: (_, state) =>
+          _withBackFallback(state, const MyRecipesScreen()),
+    ),
     GoRoute(
       path: '/my/recipes/new',
-      builder: (_, _) => const RecipeUploadScreen(returnToMyRecipes: true),
+      builder: (_, state) => _withBackFallback(
+        state,
+        const RecipeUploadScreen(returnToMyRecipes: true),
+      ),
     ),
     GoRoute(
       path: '/my/recipes/:id/edit',
@@ -163,23 +215,42 @@ final appRouter = GoRouter(
             : context
                 .read<RecipeProvider>()
                 .recipeById(state.pathParameters['id'] ?? '');
-        if (recipe == null) return const MyRecipesScreen();
-        return RecipeUploadScreen(
-          returnToMyRecipes: true,
-          initialRecipe: recipe,
+        if (recipe == null) {
+          return _withBackFallback(state, const MyRecipesScreen());
+        }
+        return _withBackFallback(
+          state,
+          RecipeUploadScreen(
+            returnToMyRecipes: true,
+            initialRecipe: recipe,
+          ),
         );
       },
     ),
     GoRoute(
       path: '/my/saved-recipes',
-      builder: (_, _) => const SavedRecipesScreen(),
+      builder: (_, state) =>
+          _withBackFallback(state, const SavedRecipesScreen()),
     ),
-    GoRoute(path: '/my/reviews', builder: (_, _) => const MyReviewsScreen()),
-    GoRoute(path: '/my/comments', builder: (_, _) => const MyCommentsScreen()),
+    GoRoute(
+      path: '/my/reviews',
+      builder: (_, state) =>
+          _withBackFallback(state, const MyReviewsScreen()),
+    ),
+    GoRoute(
+      path: '/my/comments',
+      builder: (_, state) =>
+          _withBackFallback(state, const MyCommentsScreen()),
+    ),
     GoRoute(
       path: '/my/cooking-history',
-      builder: (_, _) => const CookingHistoryScreen(),
+      builder: (_, state) =>
+          _withBackFallback(state, const CookingHistoryScreen()),
     ),
-    GoRoute(path: '/my/tutorial', builder: (_, _) => const TutorialScreen()),
+    GoRoute(
+      path: '/my/tutorial',
+      builder: (_, state) =>
+          _withBackFallback(state, const TutorialScreen()),
+    ),
   ],
 );
