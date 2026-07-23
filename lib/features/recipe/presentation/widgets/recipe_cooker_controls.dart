@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../../../../core/widgets/app_toast.dart';
 import '../../../cooking/data/models/cooking_session_state.dart';
 import '../../../cooking/presentation/widgets/cooking_rive_animation.dart';
 import '../../../cooking/provider/cooking_session_provider.dart';
@@ -498,7 +499,7 @@ class _PreheatingDetails extends StatelessWidget {
                 label: session.isPaused ? '예열 재개' : '일시정지',
                 icon: session.isPaused ? Icons.play_arrow : Icons.pause,
                 onPressed: session.isPaused
-                    ? session.resumeCooking
+                    ? () => _resumeCooking(context, session)
                     : session.pauseCooking,
               ),
             ),
@@ -613,7 +614,7 @@ class _CookingDetails extends StatelessWidget {
                 label: session.isPaused ? '조리 재개' : '일시정지',
                 icon: session.isPaused ? Icons.play_arrow : Icons.pause,
                 onPressed: session.isPaused
-                    ? session.resumeCooking
+                    ? () => _resumeCooking(context, session)
                     : session.pauseCooking,
               ),
             ),
@@ -631,6 +632,19 @@ class _CookingDetails extends StatelessWidget {
       ],
     );
   }
+}
+
+Future<void> _resumeCooking(
+  BuildContext context,
+  CookingSessionProvider session,
+) async {
+  final roundedMinutes = await session.resumeCooking();
+  if (!context.mounted || roundedMinutes == null) return;
+  showAppToast(
+    context,
+    '30초 기준으로 반올림해 $roundedMinutes분으로 재개했어요.',
+    success: true,
+  );
 }
 
 class _CompletedDetails extends StatelessWidget {

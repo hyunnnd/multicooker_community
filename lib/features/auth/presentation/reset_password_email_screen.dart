@@ -19,6 +19,7 @@ class ResetPasswordEmailScreen extends StatefulWidget {
 
 class _ResetPasswordEmailScreenState extends State<ResetPasswordEmailScreen> {
   final _email = TextEditingController();
+  String? _toastMessage;
 
   @override
   void dispose() {
@@ -27,6 +28,10 @@ class _ResetPasswordEmailScreenState extends State<ResetPasswordEmailScreen> {
   }
 
   Future<void> _send() async {
+    if (_email.text.trim().isEmpty) {
+      _showToast('이메일을 입력해 주세요.');
+      return;
+    }
     final ok = await context.read<AuthProvider>().sendResetPasswordEmailCode(
       _email.text,
     );
@@ -36,6 +41,8 @@ class _ResetPasswordEmailScreenState extends State<ResetPasswordEmailScreen> {
     }
   }
 
+  void _showToast(String message) => setState(() => _toastMessage = message);
+
   @override
   Widget build(BuildContext context) {
     return Consumer<AuthProvider>(
@@ -44,8 +51,13 @@ class _ResetPasswordEmailScreenState extends State<ResetPasswordEmailScreen> {
         child: AuthScaffold(
           title: '비밀번호 재설정',
           showBack: true,
+          scrollable: false,
+          toast: ErrorView(
+            _toastMessage ?? auth.errorMessage,
+            toast: true,
+            friendlyMessage: _toastMessage,
+          ),
           children: [
-            ErrorView(auth.errorMessage),
             AppTextField(
               controller: _email,
               label: 'Email',

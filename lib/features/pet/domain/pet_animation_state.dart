@@ -10,6 +10,7 @@ enum PetAnimationState {
   error,
   sleeping,
   tapped,
+  struggling,
 }
 
 enum AppPetStatus {

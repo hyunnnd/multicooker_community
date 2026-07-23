@@ -48,8 +48,8 @@ class _WriteReviewPageState extends State<_WriteReviewPage> {
       appBar: AppBar(
         backgroundColor: Colors.white,
         centerTitle: true,
-        leading: IconButton(onPressed: widget.onBack, icon: const Icon(Icons.arrow_back, color: _text2)),
-        title: const Text('후기 작성', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: _text)),
+        leading: AppBackButton(onPressed: widget.onBack),
+        title: const Text('후기 작성'),
         actions: [
           TextButton(
             onPressed: _submitting ? null : _submit,

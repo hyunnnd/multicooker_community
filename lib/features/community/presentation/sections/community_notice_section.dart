@@ -71,7 +71,7 @@ class _CommunityNoticeDetailSectionState extends State<CommunityNoticeDetailSect
 
   @override
   Widget build(BuildContext context) {
-    final provider = context.watch<CommunityProvider>();
+    final provider = context.read<CommunityProvider>();
     final notice = provider.noticeById(widget.noticeId);
     if (notice == null) {
       return _NoticeScaffold(onBack: widget.onBack, title: '공지사항', child: const Center(child: Text('공지사항을 찾을 수 없습니다.')));
@@ -169,7 +169,7 @@ class _CommunityNoticeListSectionState extends State<CommunityNoticeListSection>
 
   @override
   Widget build(BuildContext context) {
-    final provider = context.watch<CommunityProvider>();
+    final provider = context.read<CommunityProvider>();
     final notices = provider.filteredNotices(_controller.text);
     final important = notices.where((notice) => notice.important).toList();
     final normal = notices.where((notice) => !notice.important).toList();

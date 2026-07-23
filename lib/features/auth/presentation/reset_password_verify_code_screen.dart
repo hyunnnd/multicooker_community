@@ -22,6 +22,7 @@ class ResetPasswordVerifyCodeScreen extends StatefulWidget {
 class _ResetPasswordVerifyCodeScreenState
     extends State<ResetPasswordVerifyCodeScreen> {
   final _code = TextEditingController();
+  String? _toastMessage;
 
   @override
   void dispose() {
@@ -30,6 +31,10 @@ class _ResetPasswordVerifyCodeScreenState
   }
 
   Future<void> _verify() async {
+    if (_code.text.trim().isEmpty) {
+      _showToast('인증코드를 입력해 주세요.');
+      return;
+    }
     final ok = await context.read<AuthProvider>().verifyResetPasswordEmailCode(
       widget.email,
       _code.text,
@@ -40,6 +45,8 @@ class _ResetPasswordVerifyCodeScreenState
     }
   }
 
+  void _showToast(String message) => setState(() => _toastMessage = message);
+
   @override
   Widget build(BuildContext context) {
     return Consumer<AuthProvider>(
@@ -48,10 +55,16 @@ class _ResetPasswordVerifyCodeScreenState
         child: AuthScaffold(
           title: '재설정 코드 확인',
           showBack: true,
+          backPath: '/reset',
+          scrollable: false,
+          toast: ErrorView(
+            _toastMessage ?? auth.errorMessage,
+            toast: true,
+            friendlyMessage: _toastMessage,
+          ),
           children: [
             Text(widget.email),
             const SizedBox(height: 12),
-            ErrorView(auth.errorMessage),
             AppTextField(controller: _code, label: 'Code'),
             const SizedBox(height: 20),
             AppButton(label: '인증 확인', icon: Icons.verified, onPressed: _verify),

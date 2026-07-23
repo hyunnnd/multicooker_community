@@ -14,10 +14,8 @@ import '../data/models/cooking_session_state.dart';
 class CookingSessionProvider extends ChangeNotifier {
   static const _preheatSafetyMinutes = 100;
 
-  CookingSessionProvider(
-    this._service, {
-    ProfileRepository? profileRepository,
-  }) : _profileRepository = profileRepository {
+  CookingSessionProvider(this._service, {ProfileRepository? profileRepository})
+    : _profileRepository = profileRepository {
     _statusSubscription = _service.states.listen(_onCookerStatus);
   }
 
@@ -27,7 +25,6 @@ class CookingSessionProvider extends ChangeNotifier {
   StreamSubscription<CookerState>? _statusSubscription;
   List<CookingSection> _sections = const [];
   bool _singleStepMode = false;
-  DateTime? _keepLocalClockUntil;
   DateTime? _sessionStartedAt;
   bool _historyRecorded = false;
   CookingSessionState state = const CookingSessionState();
@@ -66,7 +63,6 @@ class CookingSessionProvider extends ChangeNotifier {
           ),
         )
         .toList(growable: false);
-    _keepLocalClockUntil = null;
     _sessionStartedAt = null;
     _historyRecorded = false;
     state = CookingSessionState(recipe: recipe);
@@ -197,14 +193,42 @@ class CookingSessionProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> resumeCooking() async {
+  Future<int?> resumeCooking() async {
+    final remainingSeconds = state.remainingSeconds;
+    final roundedMinutes = _setCurrentSectionToRemainingDuration(
+      remainingSeconds,
+    );
     await _service.send(_command(CookingStatus.cooking));
     state = state.copyWith(
       isPaused: false,
+      remainingSeconds: roundedMinutes == null
+          ? remainingSeconds
+          : roundedMinutes * 60,
       currentStatusText: isPreheating ? '쿠커 예열 중' : '조리 중',
     );
     notifyListeners();
     _startTimer();
+    return roundedMinutes;
+  }
+
+  int? _setCurrentSectionToRemainingDuration(int remainingSeconds) {
+    if (state.phase != CookingPhase.cooking ||
+        _sections.isEmpty ||
+        remainingSeconds <= 0) {
+      return null;
+    }
+    final index = (_singleStepMode ? 0 : state.currentCookerStepIndex)
+        .clamp(0, _sections.length - 1)
+        .toInt();
+    final section = _sections[index];
+    final roundedMinutes = (remainingSeconds / 60).round().clamp(1, 90);
+    final updated = [..._sections];
+    updated[index] = CookingSection(
+      temperature: section.temperature,
+      duration: roundedMinutes,
+    );
+    _sections = updated;
+    return roundedMinutes;
   }
 
   Future<void> updateCookerSettings({
@@ -216,6 +240,7 @@ class CookingSessionProvider extends ChangeNotifier {
       return;
     }
     if (_sections.isEmpty) return;
+    final wasPaused = state.isPaused;
 
     final index = state.phase == CookingPhase.preheating || _singleStepMode
         ? 0
@@ -229,22 +254,22 @@ class CookingSessionProvider extends ChangeNotifier {
     );
     _sections = nextSections;
 
-    if (state.phase == CookingPhase.cooking) {
+    if (state.phase == CookingPhase.cooking && !wasPaused) {
       await _service.send(_command(CookingStatus.stopped));
       await Future<void>.delayed(const Duration(milliseconds: 250));
     }
-    await _service.send(_command(CookingStatus.cooking));
-    if (durationMinutes != null) {
-      _keepLocalClockUntil = DateTime.now().add(const Duration(seconds: 3));
-    }
+    await _service.send(
+      _command(wasPaused ? CookingStatus.stopped : CookingStatus.cooking),
+    );
     state = state.copyWith(
       targetTemperature: temperature,
       remainingSeconds: durationMinutes == null
           ? state.remainingSeconds
           : duration * 60,
+      currentStatusText: wasPaused ? '일시정지' : state.currentStatusText,
     );
     notifyListeners();
-    if (durationMinutes != null) _startTimer();
+    if (durationMinutes != null && !wasPaused) _startTimer();
   }
 
   Future<void> stopCooking() async {
@@ -266,7 +291,6 @@ class CookingSessionProvider extends ChangeNotifier {
   Future<void> finishSession() async {
     _timer?.cancel();
     _sections = const [];
-    _keepLocalClockUntil = null;
     try {
       await _service.send(_command(CookingStatus.standby));
     } finally {
@@ -468,9 +492,12 @@ class CookingSessionProvider extends ChangeNotifier {
         if (found >= 0) instructionIndex = found;
       }
     }
+    // 조리 시간은 앱 세션의 카운트다운을 기준으로 표시한다. 쿠커는
+    // stopped/cooking 전환 때 목표 시간을 다시 보고할 수 있어 남은 시간이
+    // 초기화되는 것을 막는다.
     final keepLocalClock =
-        _keepLocalClockUntil?.isAfter(DateTime.now()) ?? false;
-    if (!keepLocalClock) _keepLocalClockUntil = null;
+        state.isPaused ||
+        (state.phase == CookingPhase.cooking && state.remainingSeconds > 0);
 
     state = state.copyWith(
       currentInstructionIndex: instructionIndex,
@@ -546,7 +573,6 @@ class CookingSessionProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-
   void _markSessionStarted() {
     _sessionStartedAt ??= DateTime.now();
   }
@@ -574,8 +600,8 @@ class CookingSessionProvider extends ChangeNotifier {
     final maxTemperature = recipe.cookerSteps.isEmpty
         ? state.targetTemperature
         : recipe.cookerSteps
-            .map((step) => step.temperature)
-            .reduce((a, b) => a > b ? a : b);
+              .map((step) => step.temperature)
+              .reduce((a, b) => a > b ? a : b);
     try {
       await repository.createCookingHistory(
         recipeId: recipe.id,

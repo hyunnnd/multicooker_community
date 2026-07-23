@@ -19,6 +19,22 @@ String communityRelativeTime(DateTime? createdAt, {String fallback = ''}) {
   return '${local.year}.$month.$day';
 }
 
+
+String communityDateTimeLabel(DateTime? value) {
+  if (value == null) return '';
+  final local = value.toLocal();
+  final month = local.month.toString().padLeft(2, '0');
+  final day = local.day.toString().padLeft(2, '0');
+  final hour = local.hour.toString().padLeft(2, '0');
+  final minute = local.minute.toString().padLeft(2, '0');
+  return '${local.year}.$month.$day $hour:$minute';
+}
+
+bool communityWasEdited(DateTime? createdAt, DateTime? updatedAt) {
+  if (createdAt == null || updatedAt == null) return false;
+  return updatedAt.difference(createdAt).abs() > const Duration(seconds: 1);
+}
+
 enum CommunityTab {
   all('전체'),
   popular('인기'),
@@ -78,9 +94,12 @@ class CommunityReply {
     this.authorUserId,
     required this.username,
     required this.avatarColor,
+    this.avatarImageUrl,
     required this.content,
     required this.timeAgo,
     this.createdAt,
+    this.updatedAt,
+    this.isAdmin = false,
     required this.likes,
     this.reportCount,
     this.isLiked = false,
@@ -91,10 +110,14 @@ class CommunityReply {
   final int? authorUserId;
   final String username;
   final int avatarColor;
+  final String? avatarImageUrl;
   final String content;
   final String timeAgo;
   final DateTime? createdAt;
+  final DateTime? updatedAt;
+  final bool isAdmin;
   String get relativeTime => communityRelativeTime(createdAt, fallback: timeAgo);
+  bool get wasEdited => communityWasEdited(createdAt, updatedAt);
   final int likes;
   final int? reportCount;
   final bool isLiked;
@@ -105,9 +128,12 @@ class CommunityReply {
     int? authorUserId,
     String? username,
     int? avatarColor,
+    String? avatarImageUrl,
     String? content,
     String? timeAgo,
     DateTime? createdAt,
+    DateTime? updatedAt,
+    bool? isAdmin,
     int? likes,
     int? reportCount,
     bool? isLiked,
@@ -118,9 +144,12 @@ class CommunityReply {
         authorUserId: authorUserId ?? this.authorUserId,
         username: username ?? this.username,
         avatarColor: avatarColor ?? this.avatarColor,
+        avatarImageUrl: avatarImageUrl ?? this.avatarImageUrl,
         content: content ?? this.content,
         timeAgo: timeAgo ?? this.timeAgo,
         createdAt: createdAt ?? this.createdAt,
+        updatedAt: updatedAt ?? this.updatedAt,
+        isAdmin: isAdmin ?? this.isAdmin,
         likes: likes ?? this.likes,
         reportCount: reportCount ?? this.reportCount,
         isLiked: isLiked ?? this.isLiked,
@@ -135,9 +164,12 @@ class CommunityComment {
     this.authorUserId,
     required this.username,
     required this.avatarColor,
+    this.avatarImageUrl,
     required this.content,
     required this.timeAgo,
     this.createdAt,
+    this.updatedAt,
+    this.isAdmin = false,
     required this.likes,
     required this.replies,
     this.reportCount,
@@ -149,10 +181,14 @@ class CommunityComment {
   final int? authorUserId;
   final String username;
   final int avatarColor;
+  final String? avatarImageUrl;
   final String content;
   final String timeAgo;
   final DateTime? createdAt;
+  final DateTime? updatedAt;
+  final bool isAdmin;
   String get relativeTime => communityRelativeTime(createdAt, fallback: timeAgo);
+  bool get wasEdited => communityWasEdited(createdAt, updatedAt);
   final int likes;
   final int? reportCount;
   final bool isLiked;
@@ -164,9 +200,12 @@ class CommunityComment {
     int? authorUserId,
     String? username,
     int? avatarColor,
+    String? avatarImageUrl,
     String? content,
     String? timeAgo,
     DateTime? createdAt,
+    DateTime? updatedAt,
+    bool? isAdmin,
     int? likes,
     int? reportCount,
     bool? isLiked,
@@ -178,9 +217,12 @@ class CommunityComment {
         authorUserId: authorUserId ?? this.authorUserId,
         username: username ?? this.username,
         avatarColor: avatarColor ?? this.avatarColor,
+        avatarImageUrl: avatarImageUrl ?? this.avatarImageUrl,
         content: content ?? this.content,
         timeAgo: timeAgo ?? this.timeAgo,
         createdAt: createdAt ?? this.createdAt,
+        updatedAt: updatedAt ?? this.updatedAt,
+        isAdmin: isAdmin ?? this.isAdmin,
         likes: likes ?? this.likes,
         reportCount: reportCount ?? this.reportCount,
         isLiked: isLiked ?? this.isLiked,
@@ -197,8 +239,11 @@ class CommunityPost {
     required this.category,
     required this.username,
     required this.avatarColor,
+    this.avatarImageUrl,
     required this.timeAgo,
     this.createdAt,
+    this.updatedAt,
+    this.isAdmin = false,
     required this.title,
     required this.content,
     required this.likes,
@@ -221,9 +266,14 @@ class CommunityPost {
   final PostCategory category;
   final String username;
   final int avatarColor;
+  final String? avatarImageUrl;
   final String timeAgo;
   final DateTime? createdAt;
+  final DateTime? updatedAt;
+  final bool isAdmin;
   String get relativeTime => communityRelativeTime(createdAt, fallback: timeAgo);
+  bool get wasEdited => communityWasEdited(createdAt, updatedAt);
+  String get editedLabel => communityDateTimeLabel(updatedAt);
   final String title;
   final String content;
   final int likes;
@@ -255,8 +305,11 @@ class CommunityPost {
     PostCategory? category,
     String? username,
     int? avatarColor,
+    String? avatarImageUrl,
     String? timeAgo,
     DateTime? createdAt,
+    DateTime? updatedAt,
+    bool? isAdmin,
     String? title,
     String? content,
     int? likes,
@@ -279,8 +332,11 @@ class CommunityPost {
         category: category ?? this.category,
         username: username ?? this.username,
         avatarColor: avatarColor ?? this.avatarColor,
+        avatarImageUrl: avatarImageUrl ?? this.avatarImageUrl,
         timeAgo: timeAgo ?? this.timeAgo,
         createdAt: createdAt ?? this.createdAt,
+        updatedAt: updatedAt ?? this.updatedAt,
+        isAdmin: isAdmin ?? this.isAdmin,
         title: title ?? this.title,
         content: content ?? this.content,
         likes: likes ?? this.likes,
@@ -306,12 +362,15 @@ class CommunityReview {
     this.authorUserId,
     required this.username,
     required this.avatarColor,
+    this.avatarImageUrl,
     required this.recipeTitle,
     required this.recipeImage,
     required this.rating,
     required this.content,
     required this.date,
     this.createdAt,
+    this.updatedAt,
+    this.isAdmin = false,
     required this.likes,
     required this.commentCount,
     required this.recipeId,
@@ -327,13 +386,17 @@ class CommunityReview {
   final int? authorUserId;
   final String username;
   final int avatarColor;
+  final String? avatarImageUrl;
   final String recipeTitle;
   final String recipeImage;
   final int rating;
   final String content;
   final String date;
   final DateTime? createdAt;
+  final DateTime? updatedAt;
+  final bool isAdmin;
   String get relativeTime => communityRelativeTime(createdAt, fallback: date);
+  bool get wasEdited => communityWasEdited(createdAt, updatedAt);
   final int likes;
   final int commentCount;
   final String recipeId;
@@ -391,17 +454,26 @@ class CommunityReview {
     return idMatch || titleMatch;
   }
 
-  CommunityReview copyWith({int? likes, bool? isLiked}) => CommunityReview(
+  CommunityReview copyWith({
+    String? username,
+    int? avatarColor,
+    String? avatarImageUrl,
+    int? likes,
+    bool? isLiked,
+  }) => CommunityReview(
         id: id,
         authorUserId: authorUserId,
-        username: username,
-        avatarColor: avatarColor,
+        username: username ?? this.username,
+        avatarColor: avatarColor ?? this.avatarColor,
+        avatarImageUrl: avatarImageUrl ?? this.avatarImageUrl,
         recipeTitle: recipeTitle,
         recipeImage: recipeImage,
         rating: rating,
         content: content,
         date: date,
         createdAt: createdAt,
+        updatedAt: updatedAt,
+        isAdmin: isAdmin,
         likes: likes ?? this.likes,
         commentCount: commentCount,
         recipeId: recipeId,
@@ -423,9 +495,11 @@ class RecipeCommunityComment {
     this.authorUserId,
     required this.username,
     required this.avatarColor,
+    this.avatarImageUrl,
     required this.content,
     this.createdAt,
     this.isMine = false,
+    this.isRecipeAuthor = false,
   });
 
   final int id;
@@ -434,22 +508,31 @@ class RecipeCommunityComment {
   final int? authorUserId;
   final String username;
   final int avatarColor;
+  final String? avatarImageUrl;
   final String content;
   final DateTime? createdAt;
   final bool isMine;
+  final bool isRecipeAuthor;
 
   String get relativeTime => communityRelativeTime(createdAt);
 
-  RecipeCommunityComment copyWith({String? content}) => RecipeCommunityComment(
+  RecipeCommunityComment copyWith({
+    String? username,
+    int? avatarColor,
+    String? avatarImageUrl,
+    String? content,
+  }) => RecipeCommunityComment(
         id: id,
         recipeId: recipeId,
         recipeTitle: recipeTitle,
         authorUserId: authorUserId,
-        username: username,
-        avatarColor: avatarColor,
+        username: username ?? this.username,
+        avatarColor: avatarColor ?? this.avatarColor,
+        avatarImageUrl: avatarImageUrl ?? this.avatarImageUrl,
         content: content ?? this.content,
         createdAt: createdAt,
         isMine: isMine,
+        isRecipeAuthor: isRecipeAuthor,
       );
 }
 
@@ -462,6 +545,8 @@ class CommunityNotice {
     required this.summary,
     required this.content,
     required this.important,
+    this.createdAt,
+    this.updatedAt,
   });
 
   final int id;
@@ -470,6 +555,11 @@ class CommunityNotice {
   final String summary;
   final String content;
   final bool important;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  bool get wasEdited => communityWasEdited(createdAt, updatedAt);
+  String get editedLabel => communityDateTimeLabel(updatedAt);
 }
 
 @immutable
@@ -536,7 +626,64 @@ class AdminReportSummary {
   final int rejected;
 }
 
-enum NotificationType { comment, reply }
+class CommunityBlockedUser {
+  const CommunityBlockedUser({
+    required this.id,
+    this.userId,
+    required this.username,
+    this.createdAt,
+  });
+
+  final int id;
+  final int? userId;
+  final String username;
+  final DateTime? createdAt;
+}
+
+@immutable
+class CommunityAuthorRecipe {
+  const CommunityAuthorRecipe({
+    required this.id,
+    required this.title,
+    required this.description,
+    required this.author,
+    this.thumbnailUrl,
+    this.createdAt,
+  });
+
+  final String id;
+  final String title;
+  final String description;
+  final String author;
+  final String? thumbnailUrl;
+  final DateTime? createdAt;
+}
+
+@immutable
+class CommunityAuthorProfile {
+  const CommunityAuthorProfile({
+    required this.userId,
+    required this.nickname,
+    required this.avatarColor,
+    this.avatarImageUrl,
+    this.isAdmin = false,
+    this.posts = const [],
+    this.publicRecipes = const [],
+  });
+
+  final int userId;
+  final String nickname;
+  final int avatarColor;
+  final String? avatarImageUrl;
+  final bool isAdmin;
+  final List<CommunityPost> posts;
+  final List<CommunityAuthorRecipe> publicRecipes;
+
+  int get postCount => posts.length;
+  int get publicRecipeCount => publicRecipes.length;
+}
+
+enum NotificationType { comment, reply, recipeComment, recipeReview, like, notice }
 
 @immutable
 class CommunityNotification {
@@ -544,10 +691,18 @@ class CommunityNotification {
     required this.id,
     required this.type,
     required this.fromUser,
+    this.fromUserId,
     required this.avatarColor,
+    this.avatarImageUrl,
     required this.postTitle,
     this.contextText = '',
     required this.postId,
+    this.recipeId = '',
+    this.noticeId,
+    this.targetCommentId,
+    this.targetReplyId,
+    this.targetRecipeCommentId,
+    this.targetReviewId,
     required this.timeAgo,
     this.createdAt,
     required this.read,
@@ -556,10 +711,18 @@ class CommunityNotification {
   final int id;
   final NotificationType type;
   final String fromUser;
+  final int? fromUserId;
   final int avatarColor;
+  final String? avatarImageUrl;
   final String postTitle;
   final String contextText;
   final int postId;
+  final String recipeId;
+  final int? noticeId;
+  final int? targetCommentId;
+  final int? targetReplyId;
+  final int? targetRecipeCommentId;
+  final int? targetReviewId;
   final String timeAgo;
   final DateTime? createdAt;
   String get relativeTime => communityRelativeTime(createdAt, fallback: timeAgo);
@@ -583,14 +746,52 @@ class CommunityNotification {
 
   final bool read;
 
-  CommunityNotification copyWith({bool? read}) => CommunityNotification(
+  bool get isRecipeNotification => recipeId.trim().isNotEmpty;
+  bool get isNoticeNotification => type == NotificationType.notice && noticeId != null;
+
+  String get phoneMessage => switch (type) {
+        NotificationType.reply => '$fromUser님이 내 댓글에 답글을 달았습니다.',
+        NotificationType.recipeComment => '$fromUser님이 내 레시피에 댓글을 남겼습니다.',
+        NotificationType.recipeReview => '$fromUser님이 내 레시피에 후기를 남겼습니다.',
+        NotificationType.like => '$fromUser님이 내 글에 좋아요를 눌렀습니다.',
+        NotificationType.notice => '새 공지사항이 등록되었습니다.',
+        NotificationType.comment => '$fromUser님이 내 글에 댓글을 달았습니다.',
+      };
+
+  String get routePath => isNoticeNotification
+      ? '/community?noticeId=$noticeId'
+      : isRecipeNotification
+          ? '/recipes/${Uri.encodeComponent(recipeId.trim())}'
+          : Uri(
+              path: '/community',
+              queryParameters: {
+                'postId': '$postId',
+                if (targetCommentId != null) 'commentId': '$targetCommentId',
+                if (targetReplyId != null) 'replyId': '$targetReplyId',
+              },
+            ).toString();
+
+  CommunityNotification copyWith({
+    String? fromUser,
+    int? avatarColor,
+    String? avatarImageUrl,
+    bool? read,
+  }) => CommunityNotification(
         id: id,
         type: type,
-        fromUser: fromUser,
-        avatarColor: avatarColor,
+        fromUser: fromUser ?? this.fromUser,
+        fromUserId: fromUserId,
+        avatarColor: avatarColor ?? this.avatarColor,
+        avatarImageUrl: avatarImageUrl ?? this.avatarImageUrl,
         postTitle: postTitle,
         contextText: contextText,
         postId: postId,
+        recipeId: recipeId,
+        noticeId: noticeId,
+        targetCommentId: targetCommentId,
+        targetReplyId: targetReplyId,
+        targetRecipeCommentId: targetRecipeCommentId,
+        targetReviewId: targetReviewId,
         timeAgo: timeAgo,
         createdAt: createdAt,
         read: read ?? this.read,

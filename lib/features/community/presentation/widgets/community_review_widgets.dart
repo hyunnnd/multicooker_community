@@ -6,7 +6,7 @@ class _ReviewList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final provider = context.watch<CommunityProvider>();
+    final provider = context.read<CommunityProvider>();
     final reviews = provider.filteredReviews();
     if (provider.reviews.isEmpty) {
       return const _EmptyBlock(searching: false, text: '후기가 없습니다.');
@@ -33,7 +33,7 @@ class _ReviewCompactFilterHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final provider = context.watch<CommunityProvider>();
+    final provider = context.read<CommunityProvider>();
     final hasFilter = _hasReviewFilter(provider);
     final filterCount = _activeReviewFilterCount(provider);
 
@@ -566,7 +566,7 @@ class _ReviewCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final provider = context.watch<CommunityProvider>();
+    final provider = context.read<CommunityProvider>();
     final liked = provider.likedReviewIds.contains(review.id) || review.isLiked;
     return Container(
       color: Colors.white,
@@ -576,13 +576,23 @@ class _ReviewCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              _Avatar(name: review.username, color: Color(review.avatarColor), size: 22, fontSize: 10),
+              _Avatar(name: review.username, color: Color(review.avatarColor), imageUrl: review.avatarImageUrl, size: 22, fontSize: 10),
               const SizedBox(width: 6),
               Text(review.username, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: _text2)),
+              if (review.isAdmin) ...[
+                const SizedBox(width: 6),
+                const _AuthorRoleBadge(
+                  label: '관리자',
+                  admin: true,
+                ),
+              ],
               const SizedBox(width: 5),
               const Text('·', style: TextStyle(fontSize: 11, color: _gray300)),
               const SizedBox(width: 5),
-              Text(review.date, style: const TextStyle(fontSize: 11, color: _gray400)),
+              Text(
+                '${review.relativeTime}${review.wasEdited ? ' · 수정됨' : ''}',
+                style: const TextStyle(fontSize: 11, color: _gray400),
+              ),
               const Spacer(),
               for (var i = 1; i <= 5; i++) Icon(Icons.star, size: 13, color: i <= review.rating ? _yellow : _gray200),
             ],
@@ -600,7 +610,20 @@ class _ReviewCard extends StatelessWidget {
           const SizedBox(height: 12),
           Row(
             children: [
-              ClipRRect(borderRadius: BorderRadius.circular(12), child: _NetworkImageBox(url: review.recipeImage, width: 64, height: 64)),
+              GestureDetector(
+                onTap: () => _showCommunityImageViewer(
+                  context,
+                  [review.recipeImage],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: _NetworkImageBox(
+                    url: review.recipeImage,
+                    width: 64,
+                    height: 64,
+                  ),
+                ),
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(

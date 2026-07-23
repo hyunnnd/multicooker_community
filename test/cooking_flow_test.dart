@@ -181,6 +181,91 @@ void main() {
     service.dispose();
   });
 
+  test('일시정지 후 재개는 남은 시간을 분 단위로 반올림한다', () async {
+    final recipes = await MockRecipeRepository().getRecipes();
+    final service = _FakeCookerService();
+    final session = CookingSessionProvider(service)
+      ..prepareRecipe(recipes.firstWhere((recipe) => recipe.id == 'egg'));
+
+    await session.startRecipeStep(
+      instructionIndex: 0,
+      temperature: 200,
+      duration: 20,
+    );
+    session.state = session.state.copyWith(remainingSeconds: 4 * 60 + 30);
+
+    await session.pauseCooking();
+    final roundedUp = await session.resumeCooking();
+
+    expect(session.state.remainingSeconds, 5 * 60);
+    expect(roundedUp, 5);
+    expect(service.lastCommand?.sections.single.duration, 5);
+
+    service.emitState(CookingStatus.cooking, minute: 20);
+    await Future<void>.delayed(Duration.zero);
+    expect(session.state.remainingSeconds, 5 * 60);
+
+    session.state = session.state.copyWith(remainingSeconds: 4 * 60 + 29);
+    await session.pauseCooking();
+    final roundedDown = await session.resumeCooking();
+    expect(roundedDown, 4);
+    expect(session.state.remainingSeconds, 4 * 60);
+    expect(service.lastCommand?.sections.single.duration, 4);
+
+    session.dispose();
+    service.dispose();
+  });
+
+  test('시간 재설정 뒤 재개도 화면의 남은 시간을 유지한다', () async {
+    final recipes = await MockRecipeRepository().getRecipes();
+    final service = _FakeCookerService();
+    final session = CookingSessionProvider(service)
+      ..prepareRecipe(recipes.firstWhere((recipe) => recipe.id == 'egg'));
+
+    await session.startRecipeStep(
+      instructionIndex: 0,
+      temperature: 200,
+      duration: 20,
+    );
+    await session.updateCookerSettings(temperature: 180, durationMinutes: 10);
+    session.state = session.state.copyWith(remainingSeconds: 8 * 60 + 30);
+
+    await session.pauseCooking();
+    await session.resumeCooking();
+    service.emitState(CookingStatus.cooking, minute: 10);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(session.state.remainingSeconds, 9 * 60);
+    expect(service.lastCommand?.sections.single.duration, 9);
+
+    session.dispose();
+    service.dispose();
+  });
+
+  test('일시정지 중 시간 변경은 쿠커를 재개하지 않는다', () async {
+    final recipes = await MockRecipeRepository().getRecipes();
+    final service = _FakeCookerService();
+    final session = CookingSessionProvider(service)
+      ..prepareRecipe(recipes.firstWhere((recipe) => recipe.id == 'egg'));
+
+    await session.startRecipeStep(
+      instructionIndex: 0,
+      temperature: 200,
+      duration: 20,
+    );
+    await session.pauseCooking();
+    await session.updateCookerSettings(temperature: 180, durationMinutes: 12);
+
+    expect(session.isPaused, isTrue);
+    expect(session.state.remainingSeconds, 12 * 60);
+    expect(session.state.targetTemperature, 180);
+    expect(service.lastCommand?.status, CookingStatus.stopped);
+    expect(service.lastCommand?.sections.single.duration, 12);
+
+    session.dispose();
+    service.dispose();
+  });
+
   test('밥 가열 완료 뒤에는 5분 뜸 단계로 이동한다', () async {
     final recipes = await MockRecipeRepository().getRecipes();
     final service = _FakeCookerService();
@@ -322,13 +407,18 @@ class _FakeCookerService implements CookerService {
     commands.add(command);
   }
 
-  void emitState(CookingStatus status, {int temperature = 0}) => _states.add(
+  void emitState(
+    CookingStatus status, {
+    int temperature = 0,
+    int minute = 0,
+    int second = 0,
+  }) => _states.add(
     CookerState(
       status: status,
       section: 1,
       currentTemperature: temperature,
-      currentMinute: 0,
-      currentSecond: 0,
+      currentMinute: minute,
+      currentSecond: second,
       ledColor: LedColor.aurora,
       onMusic: MusicOption.option1,
       offMusic: MusicOption.option1,

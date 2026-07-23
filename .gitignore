@@ -43,3 +43,12 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Local runtime data / secrets (keep existing server data when source is updated)
+multicooker.db
+*.db
+logs/
+local_uploads/
+.env
+.env.*
+!.env.example

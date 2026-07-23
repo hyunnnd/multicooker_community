@@ -89,6 +89,41 @@ class CommunityRepository {
     return data.map((item) => _notificationFromJson(item as Map<String, dynamic>)).toList();
   }
 
+  Future<CommunityAuthorProfile> fetchAuthorProfile(int userId) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/community/users/$userId',
+      queryParameters: {'_': DateTime.now().millisecondsSinceEpoch},
+    );
+    final json = response.data?['profile'] as Map<String, dynamic>? ?? const <String, dynamic>{};
+    final posts = (json['posts'] as List<dynamic>? ?? const [])
+        .whereType<Map>()
+        .map((item) => _postFromJson(Map<String, dynamic>.from(item)))
+        .toList(growable: false);
+    final recipes = (json['public_recipes'] as List<dynamic>? ?? const [])
+        .whereType<Map>()
+        .map((item) {
+          final recipe = Map<String, dynamic>.from(item);
+          return CommunityAuthorRecipe(
+            id: recipe['id']?.toString() ?? '',
+            title: recipe['title']?.toString() ?? '',
+            description: recipe['description']?.toString() ?? '',
+            author: recipe['author']?.toString() ?? (json['nickname']?.toString() ?? ''),
+            thumbnailUrl: _asNullableString(recipe['thumbnail_url']),
+            createdAt: _asDateTime(recipe['created_at']),
+          );
+        })
+        .toList(growable: false);
+    return CommunityAuthorProfile(
+      userId: _asInt(json['user_id']),
+      nickname: json['nickname']?.toString() ?? '알 수 없는 사용자',
+      avatarColor: _asInt(json['avatar_color'], fallback: 0xFFFF8C42),
+      avatarImageUrl: _asNullableString(json['avatar_image_url']),
+      isAdmin: json['is_admin'] as bool? ?? false,
+      posts: posts,
+      publicRecipes: recipes,
+    );
+  }
+
   Future<String> uploadPostImage({
     required Uint8List bytes,
     required String filename,
@@ -115,6 +150,27 @@ class CommunityRepository {
       '/community/blocks/from-content',
       data: {'target_type': targetType, 'target_id': targetId},
     );
+  }
+
+  Future<List<CommunityBlockedUser>> fetchBlockedUsers() async {
+    final response = await _dio.get<Map<String, dynamic>>('/community/blocks');
+    final data = response.data?['blocks'] as List<dynamic>? ?? const [];
+    return data
+        .whereType<Map>()
+        .map((item) {
+          final json = Map<String, dynamic>.from(item);
+          return CommunityBlockedUser(
+            id: _asInt(json['id']),
+            userId: _asNullableInt(json['blocked_user_id']),
+            username: json['blocked_username']?.toString() ?? '알 수 없는 사용자',
+            createdAt: _asDateTime(json['created_at']),
+          );
+        })
+        .toList(growable: false);
+  }
+
+  Future<void> unblockUser(int blockId) async {
+    await _dio.delete<void>('/community/blocks/$blockId');
   }
 
   Future<CommunityPost> setAdminPostLikes(
@@ -200,14 +256,27 @@ class CommunityRepository {
     String adminNote = '',
     bool deleteContent = false,
   }) async {
-    final response = await _dio.patch<Map<String, dynamic>>(
-      '/admin/community/reports/$reportId',
-      data: {
-        'status': status,
-        'admin_note': adminNote,
-        'delete_content': deleteContent,
-      },
-    );
+    late final Response<Map<String, dynamic>> response;
+    if (deleteContent) {
+      response = await _dio.post<Map<String, dynamic>>(
+        '/admin/community/reports/$reportId/delete-content',
+        data: {'admin_note': adminNote},
+      );
+    } else if (status == 'rejected') {
+      response = await _dio.post<Map<String, dynamic>>(
+        '/admin/community/reports/$reportId/reject',
+        data: {'admin_note': adminNote},
+      );
+    } else {
+      response = await _dio.patch<Map<String, dynamic>>(
+        '/admin/community/reports/$reportId',
+        data: {
+          'status': status,
+          'admin_note': adminNote,
+          'delete_content': false,
+        },
+      );
+    }
     return _adminReportFromJson(
       response.data!['report'] as Map<String, dynamic>,
     );
@@ -423,14 +492,33 @@ class CommunityRepository {
     await _dio.patch<void>('/community/notifications/read_all');
   }
 
+  Future<void> markPostNotificationsRead(int postId) async {
+    await _dio.patch<void>(
+      '/community/notifications/read_target',
+      data: {'post_id': postId},
+    );
+  }
+
+  Future<void> markRecipeNotificationsRead(String recipeId) async {
+    final normalized = recipeId.trim();
+    if (normalized.isEmpty) return;
+    await _dio.patch<void>(
+      '/community/notifications/read_target',
+      data: {'recipe_id': normalized},
+    );
+  }
+
   CommunityPost _postFromJson(Map<String, dynamic> json) => CommunityPost(
         id: _asInt(json['id']),
         authorUserId: _asNullableInt(json['author_user_id']),
         category: _categoryFromApi(json['category']),
         username: json['username'] as String? ?? '익명',
         avatarColor: _asInt(json['avatar_color'], fallback: 0xFFFF8C42),
+        avatarImageUrl: _asNullableString(json['avatar_image_url']),
         timeAgo: json['time_ago'] as String? ?? '',
         createdAt: _asDateTime(json['created_at']),
+        updatedAt: _asDateTime(json['updated_at']),
+        isAdmin: json['author_is_admin'] as bool? ?? false,
         title: json['title'] as String? ?? '',
         content: json['content'] as String? ?? '',
         likes: _asInt(json['likes']),
@@ -455,9 +543,12 @@ class CommunityRepository {
         authorUserId: _asNullableInt(json['author_user_id']),
         username: json['username'] as String? ?? '익명',
         avatarColor: _asInt(json['avatar_color'], fallback: 0xFFFF8C42),
+        avatarImageUrl: _asNullableString(json['avatar_image_url']),
         content: json['content'] as String? ?? '',
         timeAgo: json['time_ago'] as String? ?? '',
         createdAt: _asDateTime(json['created_at']),
+        updatedAt: _asDateTime(json['updated_at']),
+        isAdmin: json['author_is_admin'] as bool? ?? false,
         likes: _asInt(json['likes']),
         reportCount: _asNullableInt(json['report_count']),
         isLiked: json['is_liked'] as bool? ?? false,
@@ -472,9 +563,12 @@ class CommunityRepository {
         authorUserId: _asNullableInt(json['author_user_id']),
         username: json['username'] as String? ?? '익명',
         avatarColor: _asInt(json['avatar_color'], fallback: 0xFFFF8C42),
+        avatarImageUrl: _asNullableString(json['avatar_image_url']),
         content: json['content'] as String? ?? '',
         timeAgo: json['time_ago'] as String? ?? '',
         createdAt: _asDateTime(json['created_at']),
+        updatedAt: _asDateTime(json['updated_at']),
+        isAdmin: json['author_is_admin'] as bool? ?? false,
         likes: _asInt(json['likes']),
         reportCount: _asNullableInt(json['report_count']),
         isLiked: json['is_liked'] as bool? ?? false,
@@ -486,12 +580,15 @@ class CommunityRepository {
         authorUserId: _asNullableInt(json['author_user_id']),
         username: json['username'] as String? ?? '익명',
         avatarColor: _asInt(json['avatar_color'], fallback: 0xFFFF8C42),
+        avatarImageUrl: _asNullableString(json['avatar_image_url']),
         recipeTitle: json['recipe_title'] as String? ?? '',
         recipeImage: json['recipe_image'] as String? ?? '',
         rating: _asInt(json['rating']),
         content: json['content'] as String? ?? '',
         date: json['date'] as String? ?? '',
         createdAt: _asDateTime(json['created_at']),
+        updatedAt: _asDateTime(json['updated_at']),
+        isAdmin: json['author_is_admin'] as bool? ?? false,
         likes: _asInt(json['likes']),
         commentCount: _asInt(json['comment_count']),
         recipeId: '${json['recipe_id'] ?? ''}',
@@ -513,9 +610,11 @@ class CommunityRepository {
         authorUserId: _asNullableInt(json['author_user_id']),
         username: json['username'] as String? ?? '익명',
         avatarColor: _asInt(json['avatar_color'], fallback: 0xFFFF8C42),
+        avatarImageUrl: _asNullableString(json['avatar_image_url']),
         content: json['content'] as String? ?? '',
         createdAt: _asDateTime(json['created_at']),
         isMine: json['is_mine'] as bool? ?? false,
+        isRecipeAuthor: json['is_recipe_author'] as bool? ?? false,
       );
 
   CommunityNotice _noticeFromJson(Map<String, dynamic> json) => CommunityNotice(
@@ -525,6 +624,8 @@ class CommunityRepository {
         summary: json['summary'] as String? ?? '',
         content: json['content'] as String? ?? '',
         important: json['important'] as bool? ?? false,
+        createdAt: _asDateTime(json['created_at']),
+        updatedAt: _asDateTime(json['updated_at']),
       );
 
   AdminCommunityReport _adminReportFromJson(Map<String, dynamic> json) {
@@ -548,18 +649,36 @@ class CommunityRepository {
     );
   }
 
-  CommunityNotification _notificationFromJson(Map<String, dynamic> json) => CommunityNotification(
-        id: _asInt(json['id']),
-        type: (json['type'] as String?) == 'reply' ? NotificationType.reply : NotificationType.comment,
-        fromUser: json['from_user'] as String? ?? '익명',
-        avatarColor: _asInt(json['avatar_color'], fallback: 0xFFFF8C42),
-        postTitle: json['post_title'] as String? ?? '',
-        contextText: json['context_text'] as String? ?? '',
-        postId: _asInt(json['post_id']),
-        timeAgo: json['time_ago'] as String? ?? '',
-        createdAt: _asDateTime(json['created_at']),
-        read: json['read'] as bool? ?? false,
-      );
+  CommunityNotification _notificationFromJson(Map<String, dynamic> json) {
+    final type = switch (json['type']?.toString()) {
+      'reply' => NotificationType.reply,
+      'recipe_comment' => NotificationType.recipeComment,
+      'recipe_review' => NotificationType.recipeReview,
+      'like' => NotificationType.like,
+      'notice' => NotificationType.notice,
+      _ => NotificationType.comment,
+    };
+    return CommunityNotification(
+      id: _asInt(json['id']),
+      type: type,
+      fromUser: json['from_user'] as String? ?? '익명',
+      fromUserId: _asNullableInt(json['from_user_id']),
+      avatarColor: _asInt(json['avatar_color'], fallback: 0xFFFF8C42),
+      avatarImageUrl: _asNullableString(json['avatar_image_url']),
+      postTitle: json['post_title'] as String? ?? '',
+      contextText: json['context_text'] as String? ?? '',
+      postId: _asInt(json['post_id']),
+      recipeId: json['recipe_id']?.toString() ?? '',
+      noticeId: _asNullableInt(json['notice_id']),
+      targetCommentId: _asNullableInt(json['target_comment_id']),
+      targetReplyId: _asNullableInt(json['target_reply_id']),
+      targetRecipeCommentId: _asNullableInt(json['target_recipe_comment_id']),
+      targetReviewId: _asNullableInt(json['target_review_id']),
+      timeAgo: json['time_ago'] as String? ?? '',
+      createdAt: _asDateTime(json['created_at']),
+      read: json['read'] as bool? ?? false,
+    );
+  }
 
   ActivitySet _activityFromJson(Map<String, dynamic>? json) {
     ActivityWindow read(String key) {
@@ -576,6 +695,11 @@ class CommunityRepository {
   DateTime? _asDateTime(dynamic value) {
     if (value == null) return null;
     return DateTime.tryParse('$value')?.toLocal();
+  }
+
+  String? _asNullableString(dynamic value) {
+    final text = value?.toString().trim();
+    return text == null || text.isEmpty ? null : text;
   }
 
   int? _asNullableInt(dynamic value) {

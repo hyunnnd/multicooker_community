@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/widgets/app_button.dart';
+import '../../../core/widgets/app_toast.dart';
 import '../../../core/widgets/app_text_field.dart';
 import '../../../core/widgets/error_view.dart';
 import '../../../core/widgets/loading_overlay.dart';
@@ -24,6 +25,7 @@ class _ResetPasswordCompleteScreenState
     extends State<ResetPasswordCompleteScreen> {
   final _password = TextEditingController();
   final _passwordConfirm = TextEditingController();
+  String? _toastMessage;
 
   @override
   void dispose() {
@@ -33,10 +35,16 @@ class _ResetPasswordCompleteScreenState
   }
 
   Future<void> _complete() async {
+    if (_password.text.isEmpty) {
+      _showToast('새 비밀번호를 입력해 주세요.');
+      return;
+    }
+    if (_passwordConfirm.text.isEmpty) {
+      _showToast('새 비밀번호 확인을 입력해 주세요.');
+      return;
+    }
     if (_password.text != _passwordConfirm.text) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('입력된 정보가 다릅니다')));
+      _showToast('새 비밀번호와 확인 값이 일치하지 않아요.');
       return;
     }
     final ok = await context.read<AuthProvider>().completeResetPassword(
@@ -47,12 +55,12 @@ class _ResetPasswordCompleteScreenState
     );
     if (!mounted) return;
     if (ok) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('비밀번호가 재설정되었습니다')));
+      showAppToast(context, '비밀번호가 재설정되었습니다.', success: true);
       context.go('/login');
     }
   }
+
+  void _showToast(String message) => setState(() => _toastMessage = message);
 
   @override
   Widget build(BuildContext context) {
@@ -62,10 +70,16 @@ class _ResetPasswordCompleteScreenState
         child: AuthScaffold(
           title: '새 비밀번호 입력',
           showBack: true,
+          backPath: '/reset/verify?email=${Uri.encodeComponent(widget.email)}',
+          scrollable: false,
+          toast: ErrorView(
+            _toastMessage ?? auth.errorMessage,
+            toast: true,
+            friendlyMessage: _toastMessage,
+          ),
           children: [
             Text(widget.email),
             const SizedBox(height: 12),
-            ErrorView(auth.errorMessage),
             AppTextField(
               controller: _password,
               label: 'New Password',

@@ -11,7 +11,7 @@ class CommunityReviewSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final provider = context.watch<CommunityProvider>();
+    final provider = context.read<CommunityProvider>();
     return Column(
       children: [
         for (final review in provider.reviews) ...[

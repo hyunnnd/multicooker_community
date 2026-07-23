@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class SecureTokenStorage {
@@ -46,6 +48,51 @@ class SecureTokenStorage {
   }) async {
     await _storage.write(key: _authAccessTokenKey, value: accessToken);
     await _storage.write(key: _authRefreshTokenKey, value: refreshToken);
+  }
+
+
+  String _communityNotificationKey(String email, String suffix) {
+    final normalized = email.trim().toLowerCase();
+    final encoded = base64Url.encode(utf8.encode(normalized)).replaceAll('=', '');
+    return 'community_notification_${suffix}_$encoded';
+  }
+
+  Future<int?> readLastCommunityNotificationId(String email) async {
+    final raw = await _storage.read(
+      key: _communityNotificationKey(email, 'last_id'),
+    );
+    return int.tryParse(raw ?? '');
+  }
+
+  Future<int?> readLastCommunityNotificationCount(String email) async {
+    final raw = await _storage.read(
+      key: _communityNotificationKey(email, 'last_count'),
+    );
+    return int.tryParse(raw ?? '');
+  }
+
+  Future<void> saveCommunityNotificationState({
+    required String email,
+    required int id,
+    required int unreadCount,
+  }) async {
+    await _storage.write(
+      key: _communityNotificationKey(email, 'last_id'),
+      value: id.toString(),
+    );
+    await _storage.write(
+      key: _communityNotificationKey(email, 'last_count'),
+      value: unreadCount.toString(),
+    );
+  }
+
+  Future<void> clearCommunityNotificationState(String email) async {
+    await _storage.delete(
+      key: _communityNotificationKey(email, 'last_id'),
+    );
+    await _storage.delete(
+      key: _communityNotificationKey(email, 'last_count'),
+    );
   }
 
   Future<void> clearApiTokens() async {

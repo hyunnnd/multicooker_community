@@ -14,7 +14,7 @@ class ApiConstants {
   /// Change it with --dart-define=AUTH_API_BASE_URL=...
   static const authBaseUrl = String.fromEnvironment(
     'AUTH_API_BASE_URL',
-    defaultValue: 'http://3.36.14.110:8000',
+    defaultValue: 'https://api.graphenesq.co.kr',
   );
 
   /// Backward-compatible alias for local prototype APIs.

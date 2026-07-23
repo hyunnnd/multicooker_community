@@ -38,7 +38,7 @@ class _CommunityAdminPageState extends State<_CommunityAdminPage>
   @override
   Widget build(BuildContext context) {
     final profile = context.watch<ProfileProvider>();
-    final provider = context.watch<CommunityProvider>();
+    final provider = context.read<CommunityProvider>();
     final isAdmin = profile.summary?.isAdmin == true || provider.isAdmin;
 
     if (!isAdmin && profile.summary != null) {
@@ -89,129 +89,191 @@ class _CommunityAdminPageState extends State<_CommunityAdminPage>
   }
 
   Future<void> _openNoticeEditor([CommunityNotice? notice]) async {
-    final titleController = TextEditingController(text: notice?.title ?? '');
-    final summaryController = TextEditingController(text: notice?.summary ?? '');
-    final contentController = TextEditingController(text: notice?.content ?? '');
-    var important = notice?.important ?? false;
-
+    final provider = context.read<CommunityProvider>();
     final saved = await showModalBottomSheet<bool>(
       context: context,
+      useRootNavigator: true,
       isScrollControlled: true,
+      isDismissible: false,
+      enableDrag: false,
       backgroundColor: Colors.white,
-      builder: (sheetContext) => StatefulBuilder(
-        builder: (sheetContext, setSheetState) {
-          final bottom = MediaQuery.of(sheetContext).viewInsets.bottom;
-          return SafeArea(
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(20, 18, 20, 20 + bottom),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Row(
-                      children: [
-                        Text(
-                          notice == null ? '공지 작성' : '공지 수정',
-                          style: const TextStyle(
-                            fontSize: 19,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                        const Spacer(),
-                        IconButton(
-                          onPressed: () => Navigator.pop(sheetContext, false),
-                          icon: const Icon(Icons.close),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: titleController,
-                      maxLength: 80,
-                      decoration: const InputDecoration(labelText: '제목'),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: summaryController,
-                      maxLength: 160,
-                      decoration: const InputDecoration(labelText: '요약'),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: contentController,
-                      minLines: 7,
-                      maxLines: 14,
-                      maxLength: 5000,
-                      decoration: const InputDecoration(labelText: '공지 내용'),
-                    ),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('중요 공지로 상단 고정'),
-                      value: important,
-                      activeThumbColor: _orange,
-                      onChanged: (value) =>
-                          setSheetState(() => important = value),
-                    ),
-                    const SizedBox(height: 8),
-                    FilledButton(
-                      style: FilledButton.styleFrom(backgroundColor: _orange),
-                      onPressed: () async {
-                        final title = titleController.text.trim();
-                        final content = contentController.text.trim();
-                        if (title.isEmpty || content.isEmpty) {
-                          ScaffoldMessenger.of(sheetContext).showSnackBar(
-                            const SnackBar(content: Text('제목과 내용을 입력해 주세요.')),
-                          );
-                          return;
-                        }
-                        final provider = context.read<CommunityProvider>();
-                        final ok = notice == null
-                            ? await provider.createAdminNotice(
-                                title: title,
-                                summary: summaryController.text,
-                                content: content,
-                                important: important,
-                              )
-                            : await provider.updateAdminNotice(
-                                notice.id,
-                                title: title,
-                                summary: summaryController.text,
-                                content: content,
-                                important: important,
-                              );
-                        if (!sheetContext.mounted) return;
-                        if (ok) {
-                          Navigator.pop(sheetContext, true);
-                        } else {
-                          ScaffoldMessenger.of(sheetContext).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                provider.errorMessage ?? '공지를 저장하지 못했습니다.',
-                              ),
-                            ),
-                          );
-                        }
-                      },
-                      child: Text(notice == null ? '공지 등록' : '변경 저장'),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          );
-        },
+      builder: (_) => _NoticeEditorSheet(
+        provider: provider,
+        notice: notice,
       ),
     );
 
-    titleController.dispose();
-    summaryController.dispose();
-    contentController.dispose();
     if (saved == true && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(notice == null ? '공지를 등록했습니다.' : '공지를 수정했습니다.')),
+        SnackBar(
+          content: Text(
+            notice == null ? '공지를 등록했습니다.' : '공지를 수정했습니다.',
+          ),
+        ),
       );
     }
+  }
+
+}
+
+class _NoticeEditorSheet extends StatefulWidget {
+  const _NoticeEditorSheet({
+    required this.provider,
+    required this.notice,
+  });
+
+  final CommunityProvider provider;
+  final CommunityNotice? notice;
+
+  @override
+  State<_NoticeEditorSheet> createState() => _NoticeEditorSheetState();
+}
+
+class _NoticeEditorSheetState extends State<_NoticeEditorSheet> {
+  late final TextEditingController _titleController;
+  late final TextEditingController _summaryController;
+  late final TextEditingController _contentController;
+  late bool _important;
+  bool _submitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final notice = widget.notice;
+    _titleController = TextEditingController(text: notice?.title ?? '');
+    _summaryController = TextEditingController(text: notice?.summary ?? '');
+    _contentController = TextEditingController(text: notice?.content ?? '');
+    _important = notice?.important ?? false;
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _summaryController.dispose();
+    _contentController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (_submitting) return;
+    final title = _titleController.text.trim();
+    final content = _contentController.text.trim();
+    if (title.isEmpty || content.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('제목과 내용을 입력해 주세요.')),
+      );
+      return;
+    }
+
+    FocusScope.of(context).unfocus();
+    setState(() => _submitting = true);
+    final notice = widget.notice;
+    final ok = notice == null
+        ? await widget.provider.createAdminNotice(
+            title: title,
+            summary: _summaryController.text,
+            content: content,
+            important: _important,
+          )
+        : await widget.provider.updateAdminNotice(
+            notice.id,
+            title: title,
+            summary: _summaryController.text,
+            content: content,
+            important: _important,
+          );
+
+    if (!mounted) return;
+    if (!ok) {
+      setState(() => _submitting = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            widget.provider.errorMessage ?? '공지를 저장하지 못했습니다.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    // provider 갱신 프레임과 모달 제거 프레임이 겹치지 않도록 분리합니다.
+    await WidgetsBinding.instance.endOfFrame;
+    if (mounted) Navigator.of(context).pop(true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottom = MediaQuery.viewInsetsOf(context).bottom;
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(20, 18, 20, 20 + bottom),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Text(
+                    widget.notice == null ? '공지 작성' : '공지 수정',
+                    style: const TextStyle(
+                      fontSize: 19,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    onPressed: _submitting
+                        ? null
+                        : () => Navigator.of(context).pop(false),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _titleController,
+                maxLength: 80,
+                decoration: const InputDecoration(labelText: '제목'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _summaryController,
+                maxLength: 160,
+                decoration: const InputDecoration(labelText: '요약'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _contentController,
+                minLines: 7,
+                maxLines: 14,
+                maxLength: 5000,
+                decoration: const InputDecoration(labelText: '공지 내용'),
+              ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('중요 공지로 상단 고정'),
+                value: _important,
+                activeThumbColor: _orange,
+                onChanged: _submitting
+                    ? null
+                    : (value) => setState(() => _important = value),
+              ),
+              const SizedBox(height: 8),
+              FilledButton(
+                style: FilledButton.styleFrom(backgroundColor: _orange),
+                onPressed: _submitting ? null : _submit,
+                child: Text(
+                  _submitting
+                      ? '저장 중...'
+                      : (widget.notice == null ? '공지 등록' : '변경 저장'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -222,7 +284,7 @@ class _AdminNoticeTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final provider = context.watch<CommunityProvider>();
+    final provider = context.read<CommunityProvider>();
     final notices = [...provider.notices]
       ..sort((a, b) {
         final important = (b.important ? 1 : 0) - (a.important ? 1 : 0);
@@ -262,6 +324,7 @@ class _AdminNoticeTab extends StatelessWidget {
           else
             for (final notice in notices) ...[
               Card(
+                key: ValueKey('admin-notice-${notice.id}'),
                 elevation: 0,
                 shape: RoundedRectangleBorder(
                   side: const BorderSide(color: _gray200),
@@ -285,7 +348,8 @@ class _AdminNoticeTab extends StatelessWidget {
                               style: const TextStyle(fontWeight: FontWeight.w900),
                             ),
                           ),
-                          PopupMenuButton<String>(
+                          AppMoreMenuButton<String>(
+                            tooltip: '공지 관리',
                             onSelected: (value) async {
                               if (value == 'edit') {
                                 onOpenEditor(notice);
@@ -417,10 +481,19 @@ class _AdminReportTab extends StatelessWidget {
   }
 }
 
-class _AdminReportCard extends StatelessWidget {
+class _AdminReportCard extends StatefulWidget {
   const _AdminReportCard({required this.report});
 
   final AdminCommunityReport report;
+
+  @override
+  State<_AdminReportCard> createState() => _AdminReportCardState();
+}
+
+class _AdminReportCardState extends State<_AdminReportCard> {
+  bool _submitting = false;
+
+  AdminCommunityReport get report => widget.report;
 
   @override
   Widget build(BuildContext context) {
@@ -449,7 +522,10 @@ class _AdminReportCard extends StatelessWidget {
                 const Spacer(),
                 Text(
                   '누적 ${report.targetReportCount}건',
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ],
             ),
@@ -462,7 +538,9 @@ class _AdminReportCard extends StatelessWidget {
             ),
             const SizedBox(height: 5),
             Text(
-              report.targetContent.isEmpty ? '내용을 확인할 수 없습니다.' : report.targetContent,
+              report.targetContent.isEmpty
+                  ? '내용을 확인할 수 없습니다.'
+                  : report.targetContent,
               maxLines: 3,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(color: _gray500, height: 1.4),
@@ -479,38 +557,51 @@ class _AdminReportCard extends StatelessWidget {
             ),
             if (report.status == 'pending') ...[
               const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  OutlinedButton(
-                    onPressed: () => _handleReport(
-                      context,
-                      status: 'rejected',
+              if (_submitting)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 8),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: _orange,
+                        ),
+                      ),
+                      SizedBox(width: 8),
+                      Text(
+                        '처리 중...',
+                        style: TextStyle(fontSize: 12, color: _gray500),
+                      ),
+                    ],
+                  ),
+                )
+              else
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    OutlinedButton(
+                      onPressed: () => _handleReport(
+                        status: 'rejected',
+                      ),
+                      child: const Text('반려'),
                     ),
-                    child: const Text('반려'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: report.targetExists
-                        ? () => _handleReport(
-                              context,
-                              status: 'resolved',
-                              deleteContent: true,
-                            )
-                        : null,
-                    icon: const Icon(Icons.delete_outline, size: 17),
-                    label: const Text('콘텐츠 삭제'),
-                  ),
-                  FilledButton(
-                    style: FilledButton.styleFrom(backgroundColor: _orange),
-                    onPressed: () => _handleReport(
-                      context,
-                      status: 'resolved',
+                    OutlinedButton.icon(
+                      onPressed: report.targetExists
+                          ? () => _handleReport(
+                                status: 'resolved',
+                                deleteContent: true,
+                              )
+                          : null,
+                      icon: const Icon(Icons.delete_outline, size: 17),
+                      label: const Text('삭제'),
                     ),
-                    child: const Text('처리 완료'),
-                  ),
-                ],
-              ),
+                  ],
+                ),
             ],
           ],
         ),
@@ -518,23 +609,37 @@ class _AdminReportCard extends StatelessWidget {
     );
   }
 
-  Future<void> _handleReport(
-    BuildContext context, {
+  Future<void> _handleReport({
     required String status,
     bool deleteContent = false,
   }) async {
+    if (_submitting) return;
+
     final noteController = TextEditingController();
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text(deleteContent ? '콘텐츠 삭제 및 처리' : '신고 처리'),
-        content: TextField(
-          controller: noteController,
-          minLines: 2,
-          maxLines: 4,
-          decoration: const InputDecoration(
-            labelText: '관리자 메모(선택)',
-          ),
+        title: Text(deleteContent ? '신고 콘텐츠 삭제' : '신고 반려'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              deleteContent
+                  ? '신고된 콘텐츠를 삭제하고 관련 미처리 신고를 함께 완료 처리합니다.'
+                  : '신고를 반려 상태로 변경합니다.',
+              style: const TextStyle(fontSize: 13, color: _gray500),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: noteController,
+              minLines: 2,
+              maxLines: 4,
+              decoration: const InputDecoration(
+                labelText: '관리자 메모(선택)',
+              ),
+            ),
+          ],
         ),
         actions: [
           TextButton(
@@ -542,21 +647,48 @@ class _AdminReportCard extends StatelessWidget {
             child: const Text('취소'),
           ),
           FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: deleteContent ? _red : _orange,
+            ),
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('확인'),
+            child: Text(deleteContent ? '삭제' : '확인'),
           ),
         ],
       ),
     );
-    if (confirmed == true && context.mounted) {
-      await context.read<CommunityProvider>().updateAdminReport(
-            report.id,
-            status: status,
-            adminNote: noteController.text,
-            deleteContent: deleteContent,
-          );
+
+    if (confirmed != true || !mounted) {
+      noteController.dispose();
+      return;
     }
+
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _submitting = true);
+    final provider = context.read<CommunityProvider>();
+    final ok = await provider.updateAdminReport(
+      report.id,
+      status: status,
+      adminNote: noteController.text.trim(),
+      deleteContent: deleteContent,
+    );
     noteController.dispose();
+
+    if (mounted) setState(() => _submitting = false);
+    if (!messenger.mounted) return;
+
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          ok
+              ? (deleteContent
+                  ? '신고된 콘텐츠를 삭제했습니다.'
+                  : '신고를 반려했습니다.')
+              : (provider.errorMessage ?? '신고를 처리하지 못했습니다.'),
+        ),
+        backgroundColor: ok ? null : _red,
+      ),
+    );
   }
 }
 
@@ -567,7 +699,7 @@ class _AdminPopularityTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final provider = context.watch<CommunityProvider>();
+    final provider = context.read<CommunityProvider>();
     final posts = [...provider.posts]
       ..sort((a, b) {
         final forced = (b.forcePopular ? 1 : 0) - (a.forcePopular ? 1 : 0);

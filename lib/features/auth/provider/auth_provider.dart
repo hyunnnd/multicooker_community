@@ -20,6 +20,7 @@ class AuthProvider extends ChangeNotifier {
   String? currentEmail;
   String? currentNickname;
   int currentAvatarColor = 0xFFFF8C42;
+  bool? tutorialCompleted;
 
   Future<void> checkAuthStatus() async {
     isLoading = true;
@@ -153,6 +154,7 @@ class AuthProvider extends ChangeNotifier {
       currentEmail = null;
       currentNickname = null;
       currentAvatarColor = 0xFFFF8C42;
+      tutorialCompleted = null;
     });
   }
 
@@ -184,6 +186,16 @@ class AuthProvider extends ChangeNotifier {
     final avatar = data['avatar_color'];
     if (avatar is int) currentAvatarColor = avatar;
     if (avatar is num) currentAvatarColor = avatar.toInt();
+
+    final directTutorial = data['tutorial_completed'];
+    if (directTutorial is bool) {
+      tutorialCompleted = directTutorial;
+    } else {
+      final settings = data['settings'];
+      if (settings is Map && settings['tutorial_completed'] is bool) {
+        tutorialCompleted = settings['tutorial_completed'] as bool;
+      }
+    }
   }
 
   void setLocalNickname(String nickname) {

@@ -244,6 +244,42 @@ class RecipeProvider extends ChangeNotifier {
     }
   }
 
+  Future<bool> setMyRecipeVisibility(
+    String recipeId,
+    String visibility,
+  ) async {
+    if (isSaving) return false;
+    isSaving = true;
+    errorMessage = null;
+    notifyListeners();
+    try {
+      final updated = await repository.updateMyRecipeVisibility(
+        recipeId: recipeId,
+        visibility: visibility,
+      );
+      _myRecipes = _myRecipes
+          .map((recipe) => recipe.id == recipeId ? updated : recipe)
+          .toList(growable: false);
+      _catalogRecipes = updated.isPublic
+          ? [
+              updated,
+              ..._catalogRecipes.where((recipe) => recipe.id != recipeId),
+            ]
+          : _catalogRecipes
+              .where((recipe) => recipe.id != recipeId)
+              .toList(growable: false);
+      if (selectedRecipe?.id == recipeId) selectedRecipe = updated;
+      if (lastUploadedRecipe?.id == recipeId) lastUploadedRecipe = updated;
+      return true;
+    } catch (error) {
+      errorMessage = '레시피 공개 범위를 변경하지 못했습니다: $error';
+      return false;
+    } finally {
+      isSaving = false;
+      notifyListeners();
+    }
+  }
+
   Future<bool> deleteMyRecipe(String recipeId) async {
     if (isSaving) return false;
     isSaving = true;

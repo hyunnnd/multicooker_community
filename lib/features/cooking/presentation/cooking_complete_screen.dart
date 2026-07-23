@@ -102,6 +102,8 @@ class _CookingCompleteScreenState extends State<CookingCompleteScreen> {
                   ],
                 ),
                 const SizedBox(height: 24),
+                const _CookerFinishInstruction(),
+                const SizedBox(height: 24),
                 const Text(
                   '오늘 요리는 어땠나요?',
                   textAlign: TextAlign.center,
@@ -134,8 +136,10 @@ class _CookingCompleteScreenState extends State<CookingCompleteScreen> {
                         'recipeImage': recipe.thumbnailUrl!.trim(),
                     };
                     final created = await context.push<bool>(
-                      Uri(path: '/community', queryParameters: params)
-                          .toString(),
+                      Uri(
+                        path: '/community',
+                        queryParameters: params,
+                      ).toString(),
                     );
                     if (!mounted || created != true) return;
                     _message('후기가 등록되었습니다.');
@@ -221,6 +225,84 @@ class _Stat extends StatelessWidget {
         Text(
           value,
           style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+        ),
+      ],
+    ),
+  );
+}
+
+class _CookerFinishInstruction extends StatelessWidget {
+  const _CookerFinishInstruction();
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      color: const Color(0xFFFFEDD5),
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: const Color(0xFFFED7AA)),
+    ),
+    child: Row(
+      children: [
+        Container(
+          width: 48,
+          height: 48,
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            shape: BoxShape.circle,
+          ),
+          child: const Center(
+            child: SizedBox(
+              width: 30,
+              height: 24,
+              child: Stack(
+                children: [
+                  Positioned(
+                    left: 0,
+                    top: 3,
+                    child: Icon(
+                      Icons.pause_rounded,
+                      color: Color(0xFFF97316),
+                      size: 18,
+                    ),
+                  ),
+                  Positioned(
+                    left: 10,
+                    top: 1,
+                    child: Icon(
+                      Icons.play_arrow_rounded,
+                      color: Color(0xFFF97316),
+                      size: 22,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        const Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '쿠커의 조리 종료 버튼을 눌러주세요',
+                style: TextStyle(
+                  color: Color(0xFF111827),
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              SizedBox(height: 4),
+              Text(
+                '기기 맨 오른쪽의 정지/시작 버튼을 누르면 완료 상태가 해제됩니다.',
+                style: TextStyle(
+                  color: Color(0xFF6B7280),
+                  fontSize: 12,
+                  height: 1.45,
+                ),
+              ),
+            ],
+          ),
         ),
       ],
     ),

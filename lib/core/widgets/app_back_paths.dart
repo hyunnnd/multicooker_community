@@ -14,7 +14,7 @@ String appBackFallbackForPath(String path) {
   // 각 탭 안에서 열린 하위 화면은 해당 탭의 최상위 화면으로 돌아갑니다.
   if (path.startsWith('/ai')) return '/ai-scan';
   if (path.startsWith('/recipes')) return '/recipes';
-  if (path.startsWith('/my/') || path == '/settings/app') return '/settings';
+  if (path.startsWith('/my/') || path.startsWith('/settings/')) return '/settings';
 
   // 쿠커·조리·테스트 화면은 별도 하단 탭이 없으므로 홈으로 돌아갑니다.
   if (path == '/device' ||

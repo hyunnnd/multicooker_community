@@ -84,6 +84,11 @@ class AuthRepository {
     await _syncLocalApiTokenWithRetry(profile, fallbackEmail: email);
   }
 
+  /// Returns the profile stored by the local app API.
+  /// This profile contains the nickname and avatar edited inside this app.
+  Future<Map<String, dynamic>> localProfile() =>
+      _guard(() => _localAuthApi.me());
+
   Future<void> sendRegisterEmailCode(String email) =>
       _guard(() => _authApi.sendRegisterEmailCode(email));
 

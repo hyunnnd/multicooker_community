@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 
 import '../../../../core/widgets/app_image.dart';
@@ -27,44 +29,14 @@ const figmaPurple = Color(0xFF9333EA);
 
 String formatK(int n) => n >= 1000 ? '${(n / 1000).toStringAsFixed(1)}k' : '$n';
 
-String _recipeKey(Recipe recipe) => '${recipe.id} ${recipe.title}'.replaceAll(' ', '').toLowerCase();
+int recipeUses(Recipe recipe) => recipe.usageCount;
 
-int recipeUses(Recipe recipe) {
-  final key = _recipeKey(recipe);
-  if (key.contains('r1') || key.contains('갈바속') || key.contains('삼겹살구이')) return 2800;
-  if (key.contains('r2') || key.contains('계란찜')) return 1900;
-  if (key.contains('r3') || key.contains('솥밥')) return 1400;
-  if (key.contains('r4') || key.contains('마늘버터새우')) return 1600;
-  if (key.contains('r5') || key.contains('스테이크')) return 3200;
-  if (key.contains('r6') || key.contains('10분새우')) return 920;
-  if (key.contains('r7') || key.contains('닭갈비')) return 1100;
-  if (key.contains('r8') || key.contains('리조또')) return 780;
-  if (key.contains('r9') || key.contains('마늘듬뿍')) return 430;
-  return 920;
-}
+int recipeReviews(Recipe recipe) => recipe.reviewCount;
 
-int recipeReviews(Recipe recipe) {
-  final key = _recipeKey(recipe);
-  if (key.contains('r1') || key.contains('갈바속') || key.contains('삼겹살구이')) return 342;
-  if (key.contains('r2') || key.contains('계란찜')) return 218;
-  if (key.contains('r3') || key.contains('솥밥')) return 156;
-  if (key.contains('r4') || key.contains('마늘버터새우')) return 189;
-  if (key.contains('r5') || key.contains('스테이크')) return 421;
-  if (key.contains('r6') || key.contains('10분새우')) return 87;
-  if (key.contains('r7') || key.contains('닭갈비')) return 134;
-  if (key.contains('r8') || key.contains('리조또')) return 98;
-  if (key.contains('r9') || key.contains('마늘듬뿍')) return 18;
-  return 98;
-}
+double recipeRating(Recipe recipe) => recipe.ratingAverage;
 
-double recipeRating(Recipe recipe) {
-  final key = _recipeKey(recipe);
-  if (key.contains('r5') || key.contains('스테이크')) return 4.9;
-  if (key.contains('r1') || key.contains('갈바속') || key.contains('삼겹살구이')) return 4.8;
-  if (key.contains('r3') || key.contains('솥밥')) return 4.6;
-  if (key.contains('r6') || key.contains('10분새우')) return 4.5;
-  return 4.7;
-}
+String _recipeKey(Recipe recipe) =>
+    '${recipe.id} ${recipe.title}'.toLowerCase().replaceAll(RegExp(r'\s+'), '');
 
 Recipe? figmaFeaturedRecipe(List<Recipe> recipes) {
   if (recipes.isEmpty) return null;
@@ -79,7 +51,13 @@ Recipe? figmaFeaturedRecipe(List<Recipe> recipes) {
 
 List<Recipe> figmaPopularRecipes(List<Recipe> recipes) {
   final sorted = [...recipes];
-  sorted.sort((a, b) => recipeUses(b).compareTo(recipeUses(a)));
+  sorted.sort((a, b) {
+    final usage = recipeUses(b).compareTo(recipeUses(a));
+    if (usage != 0) return usage;
+    final rating = recipeRating(b).compareTo(recipeRating(a));
+    if (rating != 0) return rating;
+    return recipeReviews(b).compareTo(recipeReviews(a));
+  });
   return sorted;
 }
 
@@ -158,7 +136,10 @@ class OfficialBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: tiny ? 6 : 8, vertical: tiny ? 2 : 2),
+      padding: EdgeInsets.symmetric(
+        horizontal: tiny ? 6 : 8,
+        vertical: tiny ? 2 : 2,
+      ),
       decoration: BoxDecoration(
         color: figmaOrangeLight,
         borderRadius: BorderRadius.circular(999),
@@ -190,14 +171,21 @@ class UserBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: tiny ? 6 : 8, vertical: tiny ? 2 : 4),
+      padding: EdgeInsets.symmetric(
+        horizontal: tiny ? 6 : 8,
+        vertical: tiny ? 2 : 4,
+      ),
       decoration: BoxDecoration(
         color: const Color(0xB3000000),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
         '사용자',
-        style: TextStyle(color: Colors.white, fontSize: tiny ? 10 : 11, fontWeight: FontWeight.w800),
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: tiny ? 10 : 11,
+          fontWeight: FontWeight.w800,
+        ),
       ),
     );
   }
@@ -222,7 +210,12 @@ class MethodBadge extends StatelessWidget {
           const SizedBox(width: 2),
           Text(
             methodLabel(recipe),
-            style: TextStyle(color: methodText(recipe), fontSize: 11, fontWeight: FontWeight.w900, height: 1.0),
+            style: TextStyle(
+              color: methodText(recipe),
+              fontSize: 11,
+              fontWeight: FontWeight.w900,
+              height: 1.0,
+            ),
           ),
         ],
       ),
@@ -231,7 +224,13 @@ class MethodBadge extends StatelessWidget {
 }
 
 class StarRow extends StatelessWidget {
-  const StarRow({required this.rating, this.count, this.size = 12, this.light = false, super.key});
+  const StarRow({
+    required this.rating,
+    this.count,
+    this.size = 12,
+    this.light = false,
+    super.key,
+  });
   final double rating;
   final int? count;
   final double size;
@@ -245,12 +244,22 @@ class StarRow extends StatelessWidget {
         Icon(Icons.star_rounded, size: size, color: figmaYellow),
         const SizedBox(width: 2),
         Text(
-          rating.toStringAsFixed(1),
-          style: TextStyle(fontSize: 12, color: light ? Colors.white : figmaGray900, fontWeight: FontWeight.w900),
+          (count != null && count == 0) ? '평점 없음' : rating.toStringAsFixed(1),
+          style: TextStyle(
+            fontSize: 12,
+            color: light ? Colors.white : figmaGray900,
+            fontWeight: FontWeight.w900,
+          ),
         ),
-        if (count != null) ...[
+        if (count != null && count! > 0) ...[
           const SizedBox(width: 2),
-          Text('(${formatK(count!)})', style: const TextStyle(fontSize: 12, color: figmaGray400)),
+          Text(
+            '(${formatK(count!)})',
+            style: TextStyle(
+              fontSize: 12,
+              color: light ? Colors.white70 : figmaGray400,
+            ),
+          ),
         ],
       ],
     );
@@ -258,7 +267,12 @@ class StarRow extends StatelessWidget {
 }
 
 class FigmaFilterChip extends StatelessWidget {
-  const FigmaFilterChip({required this.label, required this.active, required this.onTap, super.key});
+  const FigmaFilterChip({
+    required this.label,
+    required this.active,
+    required this.onTap,
+    super.key,
+  });
   final String label;
   final bool active;
   final VoidCallback onTap;
@@ -276,7 +290,11 @@ class FigmaFilterChip extends StatelessWidget {
         ),
         child: Text(
           label,
-          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: active ? Colors.white : figmaGray500),
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w900,
+            color: active ? Colors.white : figmaGray500,
+          ),
         ),
       ),
     );
@@ -284,7 +302,12 @@ class FigmaFilterChip extends StatelessWidget {
 }
 
 class FigmaRecipeImage extends StatelessWidget {
-  const FigmaRecipeImage({required this.source, this.width, this.height, super.key});
+  const FigmaRecipeImage({
+    required this.source,
+    this.width,
+    this.height,
+    super.key,
+  });
   final String? source;
   final double? width;
   final double? height;
@@ -332,7 +355,13 @@ class FigmaRecipeCard extends StatelessWidget {
           color: Colors.white,
           borderRadius: BorderRadius.circular(18),
           border: Border.all(color: figmaGray100),
-          boxShadow: const [BoxShadow(color: Color(0x08000000), blurRadius: 10, offset: Offset(0, 4))],
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x08000000),
+              blurRadius: 10,
+              offset: Offset(0, 4),
+            ),
+          ],
         ),
         clipBehavior: Clip.antiAlias,
         child: Column(
@@ -359,7 +388,9 @@ class FigmaRecipeCard extends StatelessWidget {
                     left: 10,
                     child: Row(
                       children: [
-                        recipe.isOfficial ? const OfficialBadge() : const UserBadge(),
+                        recipe.isOfficial
+                            ? const OfficialBadge()
+                            : const UserBadge(),
                         const SizedBox(width: 6),
                         MethodBadge(recipe: recipe),
                       ],
@@ -368,7 +399,10 @@ class FigmaRecipeCard extends StatelessWidget {
                   Positioned(
                     top: 10,
                     right: 10,
-                    child: _BookmarkButton(saved: recipe.isSaved, onTap: onSave),
+                    child: _BookmarkButton(
+                      saved: recipe.isSaved,
+                      onTap: onSave,
+                    ),
                   ),
                 ],
               ),
@@ -378,23 +412,47 @@ class FigmaRecipeCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(recipe.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 15, color: figmaGray900, fontWeight: FontWeight.w900)),
+                  Text(
+                    recipe.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      color: figmaGray900,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
                   if (!recipe.isOfficial) ...[
                     const SizedBox(height: 2),
-                    Text('by ${recipe.author}', style: const TextStyle(fontSize: 12, color: figmaGray400)),
+                    Text(
+                      'by ${recipe.author}',
+                      style: const TextStyle(fontSize: 12, color: figmaGray400),
+                    ),
                   ],
                   const SizedBox(height: 4),
                   Row(
                     children: [
-                      _Meta(icon: Icons.schedule_rounded, label: '${recipe.totalTimeMin}분'),
+                      _Meta(
+                        icon: Icons.schedule_rounded,
+                        label: '${recipe.totalTimeMin}분',
+                      ),
                       const SizedBox(width: 12),
-                      _Meta(icon: Icons.restaurant_menu_rounded, label: recipe.difficulty),
+                      _Meta(
+                        icon: Icons.restaurant_menu_rounded,
+                        label: recipe.difficulty,
+                      ),
                       const SizedBox(width: 12),
-                      _Meta(icon: Icons.local_fire_department_rounded, label: formatK(recipeUses(recipe))),
+                      _Meta(
+                        icon: Icons.play_circle_fill_rounded,
+                        label: '사용 ${formatK(recipeUses(recipe))}회',
+                      ),
                     ],
                   ),
                   const SizedBox(height: 8),
-                  StarRow(rating: recipeRating(recipe), count: recipeReviews(recipe)),
+                  StarRow(
+                    rating: recipeRating(recipe),
+                    count: recipeReviews(recipe),
+                  ),
                 ],
               ),
             ),
@@ -414,7 +472,13 @@ class FigmaRecipeCard extends StatelessWidget {
           color: Colors.white,
           borderRadius: BorderRadius.circular(18),
           border: Border.all(color: figmaGray100),
-          boxShadow: const [BoxShadow(color: Color(0x08000000), blurRadius: 10, offset: Offset(0, 4))],
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x08000000),
+              blurRadius: 10,
+              offset: Offset(0, 4),
+            ),
+          ],
         ),
         clipBehavior: Clip.antiAlias,
         child: Column(
@@ -431,7 +495,9 @@ class FigmaRecipeCard extends StatelessWidget {
                   Positioned(
                     top: 6,
                     left: 6,
-                    child: recipe.isOfficial ? const OfficialBadge(tiny: true) : const UserBadge(tiny: true),
+                    child: recipe.isOfficial
+                        ? const OfficialBadge(tiny: true)
+                        : const UserBadge(tiny: true),
                   ),
                 ],
               ),
@@ -442,19 +508,68 @@ class FigmaRecipeCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(recipe.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, height: 1.15, color: figmaGray900, fontWeight: FontWeight.w900)),
+                  Text(
+                    recipe.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      height: 1.15,
+                      color: figmaGray900,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
                   const SizedBox(height: 3),
                   Row(
                     children: [
-                      const Icon(Icons.schedule_rounded, size: 9, color: figmaGray400),
+                      const Icon(
+                        Icons.schedule_rounded,
+                        size: 9,
+                        color: figmaGray400,
+                      ),
                       const SizedBox(width: 2),
-                      Text('${recipe.totalTimeMin}분', style: const TextStyle(fontSize: 10, color: figmaGray400, fontWeight: FontWeight.w600, height: 1.0)),
+                      Text(
+                        '${recipe.totalTimeMin}분',
+                        style: const TextStyle(
+                          fontSize: 10,
+                          color: figmaGray400,
+                          fontWeight: FontWeight.w600,
+                          height: 1.0,
+                        ),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 2),
-                  Text(methodLabel(recipe), maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 10, color: methodText(recipe), fontWeight: FontWeight.w800, height: 1.0)),
+                  Text(
+                    methodLabel(recipe),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: methodText(recipe),
+                      fontWeight: FontWeight.w800,
+                      height: 1.0,
+                    ),
+                  ),
                   const SizedBox(height: 2),
-                  StarRow(rating: recipeRating(recipe), size: 10),
+                  Row(
+                    children: [
+                      StarRow(
+                        rating: recipeRating(recipe),
+                        count: recipeReviews(recipe),
+                        size: 10,
+                      ),
+                      const Spacer(),
+                      Text(
+                        '사용 ${formatK(recipeUses(recipe))}회',
+                        style: const TextStyle(
+                          fontSize: 9,
+                          color: figmaGray400,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -466,7 +581,13 @@ class FigmaRecipeCard extends StatelessWidget {
 }
 
 class FigmaFeaturedRecipeCard extends StatelessWidget {
-  const FigmaFeaturedRecipeCard({required this.recipe, required this.onTap, this.onSave, this.home = false, super.key});
+  const FigmaFeaturedRecipeCard({
+    required this.recipe,
+    required this.onTap,
+    this.onSave,
+    this.home = false,
+    super.key,
+  });
   final Recipe recipe;
   final VoidCallback onTap;
   final VoidCallback? onSave;
@@ -476,72 +597,294 @@ class FigmaFeaturedRecipeCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(home ? 24 : 18),
       child: Container(
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: figmaGray100),
-          boxShadow: const [BoxShadow(color: Color(0x08000000), blurRadius: 10, offset: Offset(0, 4))],
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(home ? 24 : 18),
+          border: home ? null : Border.all(color: figmaGray100),
+          boxShadow: home
+              ? const [
+                  BoxShadow(
+                    color: Color(0x1A000000),
+                    blurRadius: 24,
+                    offset: Offset(0, 4),
+                  ),
+                ]
+              : const [
+                  BoxShadow(
+                    color: Color(0x08000000),
+                    blurRadius: 10,
+                    offset: Offset(0, 4),
+                  ),
+                ],
         ),
         clipBehavior: Clip.antiAlias,
-        child: SizedBox(
-          height: home ? 160 : 176,
-          width: double.infinity,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              FigmaRecipeImage(source: recipe.thumbnailUrl),
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: home
-                        ? const [Colors.transparent, Color(0x99000000)]
-                        : const [Color(0x00000000), Color(0x22000000), Color(0xAA000000)],
-                  ),
-                ),
-              ),
-              if (!home) ...[
-                Positioned(
-                  top: 12,
-                  left: 12,
-                  child: Row(children: [recipe.isOfficial ? const OfficialBadge() : const UserBadge(), const SizedBox(width: 6), MethodBadge(recipe: recipe)]),
-                ),
-                Positioned(top: 12, right: 12, child: _BookmarkButton(saved: recipe.isSaved, onTap: onSave)),
-              ],
-              Positioned(
-                left: 12,
-                right: 12,
-                bottom: 12,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (home) ...[
-                      Row(children: [recipe.isOfficial ? const OfficialBadge(tiny: true) : const UserBadge(tiny: true), const SizedBox(width: 6), MethodBadge(recipe: recipe)]),
-                      const SizedBox(height: 6),
-                    ],
-                    Text(recipe.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: home ? 16 : 16, color: Colors.white, fontWeight: FontWeight.w900)),
-                    const SizedBox(height: 6),
-                    Row(
-                      children: [
-                        StarRow(rating: recipeRating(recipe), size: 11, light: true),
-                        const SizedBox(width: 12),
-                        _LightMeta(icon: Icons.schedule_rounded, label: '${recipe.totalTimeMin}분'),
-                        const SizedBox(width: 12),
-                        _LightMeta(icon: Icons.local_fire_department_rounded, label: formatK(recipeUses(recipe))),
-                        if (!home) ...[
-                          const SizedBox(width: 12),
-                          Flexible(child: Text(recipe.difficulty, style: const TextStyle(fontSize: 12, color: Colors.white70, fontWeight: FontWeight.w700))),
+        child: home
+            ? Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ClipRRect(
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(24),
+                    ),
+                    child: SizedBox(
+                      height: 208,
+                      width: double.infinity,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          FigmaRecipeImage(source: recipe.thumbnailUrl),
+                          const DecoratedBox(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.bottomCenter,
+                                end: Alignment.topCenter,
+                                colors: [
+                                  Color(0xB8000000),
+                                  Color(0x0F000000),
+                                  Colors.transparent,
+                                ],
+                              ),
+                            ),
+                          ),
+                          Positioned(
+                            top: 12,
+                            left: 12,
+                            child: Row(
+                              children: [
+                                recipe.isOfficial
+                                    ? const OfficialBadge(tiny: true)
+                                    : const UserBadge(tiny: true),
+                                const SizedBox(width: 6),
+                                MethodBadge(recipe: recipe),
+                              ],
+                            ),
+                          ),
+                          Positioned(
+                            top: 12,
+                            right: 12,
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(12),
+                              child: BackdropFilter(
+                                filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 6,
+                                  ),
+                                  color: const Color(0xD9F97316),
+                                  child: Row(
+                                    children: [
+                                      const Icon(
+                                        Icons.schedule_rounded,
+                                        size: 10,
+                                        color: Colors.white,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        '${recipe.totalTimeMin}분',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          Positioned(
+                            left: 16,
+                            right: 16,
+                            bottom: 16,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  recipe.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 19,
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    StarRow(
+                                      rating: recipeRating(recipe),
+                                      count: recipeReviews(recipe),
+                                      size: 11,
+                                      light: true,
+                                    ),
+                                    const SizedBox(width: 12),
+                                    _LightMeta(
+                                      icon: Icons.local_fire_department_rounded,
+                                      label:
+                                          '사용 ${formatK(recipeUses(recipe))}회',
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
                         ],
+                      ),
+                    ),
+                  ),
+                  Container(
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [Color(0xFFFFF8F2), Colors.white],
+                      ),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            recipe.description,
+                            maxLines: 2,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              height: 1.6,
+                              color: figmaGray500,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Container(
+                          width: 32,
+                          height: 32,
+                          decoration: const BoxDecoration(
+                            color: figmaOrange,
+                            borderRadius: BorderRadius.all(Radius.circular(12)),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Color(0x66F97316),
+                                blurRadius: 10,
+                                offset: Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: const Icon(
+                            Icons.chevron_right_rounded,
+                            size: 15,
+                            color: Colors.white,
+                          ),
+                        ),
                       ],
+                    ),
+                  ),
+                ],
+              )
+            : SizedBox(
+                height: 176,
+                width: double.infinity,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    FigmaRecipeImage(source: recipe.thumbnailUrl),
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: home
+                              ? const [Colors.transparent, Color(0x99000000)]
+                              : const [
+                                  Color(0x00000000),
+                                  Color(0x22000000),
+                                  Color(0xAA000000),
+                                ],
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      top: 12,
+                      left: 12,
+                      child: Row(
+                        children: [
+                          recipe.isOfficial
+                              ? const OfficialBadge()
+                              : const UserBadge(),
+                          const SizedBox(width: 6),
+                          MethodBadge(recipe: recipe),
+                        ],
+                      ),
+                    ),
+                    Positioned(
+                      top: 12,
+                      right: 12,
+                      child: _BookmarkButton(
+                        saved: recipe.isSaved,
+                        onTap: onSave,
+                      ),
+                    ),
+                    Positioned(
+                      left: 12,
+                      right: 12,
+                      bottom: 12,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            recipe.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              color: Colors.white,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              StarRow(
+                                rating: recipeRating(recipe),
+                                count: recipeReviews(recipe),
+                                size: 11,
+                                light: true,
+                              ),
+                              const SizedBox(width: 12),
+                              _LightMeta(
+                                icon: Icons.schedule_rounded,
+                                label: '${recipe.totalTimeMin}분',
+                              ),
+                              const SizedBox(width: 12),
+                              _LightMeta(
+                                icon: Icons.local_fire_department_rounded,
+                                label: '사용 ${formatK(recipeUses(recipe))}회',
+                              ),
+                              const SizedBox(width: 12),
+                              Flexible(
+                                child: Text(
+                                  recipe.difficulty,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.white70,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
               ),
-            ],
-          ),
-        ),
       ),
     );
   }
@@ -564,7 +907,11 @@ class _BookmarkButton extends StatelessWidget {
           color: Colors.white.withOpacity(0.20),
           borderRadius: BorderRadius.circular(12),
         ),
-        child: Icon(saved ? Icons.bookmark_rounded : Icons.bookmark_border_rounded, size: 17, color: Colors.white),
+        child: Icon(
+          saved ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
+          size: 17,
+          color: Colors.white,
+        ),
       ),
     );
   }
@@ -576,9 +923,20 @@ class _Meta extends StatelessWidget {
   final String label;
   @override
   Widget build(BuildContext context) => Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [Icon(icon, size: 11, color: figmaGray500), const SizedBox(width: 3), Text(label, style: const TextStyle(fontSize: 12, color: figmaGray500, fontWeight: FontWeight.w600))],
-      );
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Icon(icon, size: 11, color: figmaGray500),
+      const SizedBox(width: 3),
+      Text(
+        label,
+        style: const TextStyle(
+          fontSize: 12,
+          color: figmaGray500,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    ],
+  );
 }
 
 class _LightMeta extends StatelessWidget {
@@ -587,11 +945,21 @@ class _LightMeta extends StatelessWidget {
   final String label;
   @override
   Widget build(BuildContext context) => Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [Icon(icon, size: 10, color: Colors.white70), const SizedBox(width: 2), Text(label, style: const TextStyle(fontSize: 12, color: Colors.white70, fontWeight: FontWeight.w600))],
-      );
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Icon(icon, size: 10, color: Colors.white70),
+      const SizedBox(width: 2),
+      Text(
+        label,
+        style: const TextStyle(
+          fontSize: 12,
+          color: Colors.white70,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    ],
+  );
 }
-
 
 class FigmaSectionHeader extends StatelessWidget {
   const FigmaSectionHeader({
@@ -616,10 +984,20 @@ class FigmaSectionHeader extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: const TextStyle(fontSize: 14, color: figmaGray900, fontWeight: FontWeight.w900)),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 14,
+                  color: figmaGray900,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
               if (subtitle != null) ...[
                 const SizedBox(height: 2),
-                Text(subtitle!, style: const TextStyle(fontSize: 12, color: figmaGray400)),
+                Text(
+                  subtitle!,
+                  style: const TextStyle(fontSize: 12, color: figmaGray400),
+                ),
               ],
             ],
           ),
@@ -630,7 +1008,14 @@ class FigmaSectionHeader extends StatelessWidget {
             borderRadius: BorderRadius.circular(8),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-              child: Text(action!, style: const TextStyle(fontSize: 12, color: figmaOrange, fontWeight: FontWeight.w900)),
+              child: Text(
+                action!,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: figmaOrange,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
             ),
           ),
       ],
@@ -665,7 +1050,13 @@ class FigmaQuickBrowseCard extends StatelessWidget {
           color: color,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: figmaGray100),
-          boxShadow: const [BoxShadow(color: Color(0x08000000), blurRadius: 10, offset: Offset(0, 4))],
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x08000000),
+              blurRadius: 10,
+              offset: Offset(0, 4),
+            ),
+          ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -673,9 +1064,21 @@ class FigmaQuickBrowseCard extends StatelessWidget {
           children: [
             Text(emoji, style: const TextStyle(fontSize: 24, height: 1)),
             const SizedBox(height: 8),
-            Text(title, style: const TextStyle(fontSize: 14, color: figmaGray900, fontWeight: FontWeight.w900)),
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 14,
+                color: figmaGray900,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
             const SizedBox(height: 2),
-            Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: figmaGray500)),
+            Text(
+              subtitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12, color: figmaGray500),
+            ),
           ],
         ),
       ),
@@ -701,11 +1104,28 @@ class FigmaHeader extends StatelessWidget {
             InkWell(
               onTap: onBack,
               borderRadius: BorderRadius.circular(20),
-              child: const SizedBox(width: 36, height: 36, child: Icon(Icons.arrow_back_rounded, size: 20, color: figmaGray500)),
+              child: const SizedBox(
+                width: 36,
+                height: 36,
+                child: Icon(
+                  Icons.arrow_back_rounded,
+                  size: 20,
+                  color: figmaGray500,
+                ),
+              ),
             ),
             const SizedBox(width: 4),
           ],
-          Expanded(child: Text(title, style: const TextStyle(fontSize: 16, color: figmaGray900, fontWeight: FontWeight.w900))),
+          Expanded(
+            child: Text(
+              title,
+              style: const TextStyle(
+                fontSize: 16,
+                color: figmaGray900,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
           if (right != null) right!,
         ],
       ),

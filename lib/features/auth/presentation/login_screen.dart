@@ -22,6 +22,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _email = TextEditingController();
   final _password = TextEditingController();
   bool _googleLoading = false;
+  String? _toastMessage;
 
   @override
   void dispose() {
@@ -31,10 +32,12 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _login() async {
-    if (_email.text.isEmpty || _password.text.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('정보를 입력해 주세요')));
+    if (_email.text.trim().isEmpty) {
+      _showToast('이메일을 입력해 주세요.');
+      return;
+    }
+    if (_password.text.isEmpty) {
+      _showToast('비밀번호를 입력해 주세요.');
       return;
     }
     final ok = await context.read<AuthProvider>().login(
@@ -42,7 +45,11 @@ class _LoginScreenState extends State<LoginScreen> {
       _password.text,
     );
     if (!mounted) return;
-    if (ok) context.go('/home');
+    if (!ok) {
+      _showToast('이메일 또는 비밀번호를 확인해 주세요.');
+      return;
+    }
+    context.go('/home');
   }
 
   Future<void> _startGoogleLogin() async {
@@ -57,13 +64,13 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('구글 로그인 실패: $error')));
+      _showToast('구글 로그인에 실패했어요. 다시 시도해 주세요.');
     } finally {
       if (mounted) setState(() => _googleLoading = false);
     }
   }
+
+  void _showToast(String message) => setState(() => _toastMessage = message);
 
   @override
   Widget build(BuildContext context) {
@@ -72,30 +79,57 @@ class _LoginScreenState extends State<LoginScreen> {
         isLoading: auth.isLoading || _googleLoading,
         child: AuthScaffold(
           title: 'Graphene Multi-Cooker',
+          toast: ErrorView(
+            _toastMessage,
+            toast: true,
+            friendlyMessage: _toastMessage,
+          ),
           children: [
-            ErrorView(auth.errorMessage),
             AppTextField(
               controller: _email,
               label: 'Email',
+              hintText: 'you@example.com',
               keyboardType: TextInputType.emailAddress,
             ),
             const SizedBox(height: 12),
             AppTextField(
               controller: _password,
               label: 'Password',
+              hintText: '••••••••',
               obscureText: true,
             ),
-            const SizedBox(height: 20),
-            AppButton(label: 'Sign in', icon: Icons.login, onPressed: _login),
-            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: () => context.go('/reset'),
+                style: TextButton.styleFrom(
+                  foregroundColor: const Color(0xFF6B7280),
+                  textStyle: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                child: const Text('비밀번호를 잊으셨나요?'),
+              ),
+            ),
+            AppButton(
+              label: '로그인',
+              icon: Icons.login_outlined,
+              onPressed: _login,
+            ),
+            const SizedBox(height: 18),
             Row(
               children: [
                 const Expanded(child: Divider()),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   child: Text(
-                    'or',
-                    style: TextStyle(color: Theme.of(context).hintColor),
+                    '또는',
+                    style: const TextStyle(
+                      color: Color(0xFF6B7280),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
                 const Expanded(child: Divider()),
@@ -111,17 +145,33 @@ class _LoginScreenState extends State<LoginScreen> {
                   'G',
                   style: TextStyle(fontWeight: FontWeight.w800),
                 ),
-                label: const Text('Continue with Google'),
+                label: const Text('Google로 계속하기'),
               ),
             ),
-            const SizedBox(height: 12),
-            TextButton(
-              onPressed: () => context.go('/register'),
-              child: const Text('Sign up'),
-            ),
-            TextButton(
-              onPressed: () => context.go('/reset'),
-              child: const Text('Forgot password'),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: TextButton(
+                onPressed: () => context.go('/register'),
+                style: TextButton.styleFrom(
+                  minimumSize: const Size.fromHeight(44),
+                ),
+                child: const Text.rich(
+                  TextSpan(
+                    text: '계정이 없으신가요?  ',
+                    style: TextStyle(fontSize: 13, color: Color(0xFF6B7280)),
+                    children: [
+                      TextSpan(
+                        text: '회원가입',
+                        style: TextStyle(
+                          color: Color(0xFFF97316),
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ),
           ],
         ),

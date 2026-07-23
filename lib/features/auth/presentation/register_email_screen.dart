@@ -18,6 +18,7 @@ class RegisterEmailScreen extends StatefulWidget {
 
 class _RegisterEmailScreenState extends State<RegisterEmailScreen> {
   final _email = TextEditingController();
+  String? _toastMessage;
 
   @override
   void dispose() {
@@ -26,7 +27,8 @@ class _RegisterEmailScreenState extends State<RegisterEmailScreen> {
   }
 
   Future<void> _send() async {
-    if (_email.text.isEmpty) {
+    if (_email.text.trim().isEmpty) {
+      _showToast('이메일을 입력해 주세요.');
       return;
     }
     final ok = await context.read<AuthProvider>().sendRegisterEmailCode(
@@ -38,6 +40,8 @@ class _RegisterEmailScreenState extends State<RegisterEmailScreen> {
     }
   }
 
+  void _showToast(String message) => setState(() => _toastMessage = message);
+
   @override
   Widget build(BuildContext context) {
     return Consumer<AuthProvider>(
@@ -46,15 +50,24 @@ class _RegisterEmailScreenState extends State<RegisterEmailScreen> {
         child: AuthScaffold(
           title: '회원가입 이메일 인증',
           showBack: true,
+          toast: ErrorView(
+            _toastMessage ?? auth.errorMessage,
+            toast: true,
+            friendlyMessage: _toastMessage,
+          ),
           children: [
-            ErrorView(auth.errorMessage),
             AppTextField(
               controller: _email,
               label: 'Email',
+              hintText: 'you@example.com',
               keyboardType: TextInputType.emailAddress,
             ),
             const SizedBox(height: 20),
-            AppButton(label: '인증코드 발송', icon: Icons.mail, onPressed: _send),
+            AppButton(
+              label: '인증코드 발송',
+              icon: Icons.mail_outline,
+              onPressed: _send,
+            ),
           ],
         ),
       ),

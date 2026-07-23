@@ -22,8 +22,7 @@ class CommunityPostCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final totalLikes = post.likes;
-    final isPopular = totalLikes >= 100;
+    final isPopular = post.isPopular;
     return InkWell(
       onTap: onTap,
       child: Container(
@@ -34,7 +33,7 @@ class CommunityPostCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                CommunityAvatar(username: post.username, colorValue: post.avatarColor, size: 22),
+                CommunityAvatar(username: post.username, colorValue: post.avatarColor, imageUrl: post.avatarImageUrl, size: 22),
                 const SizedBox(width: 6),
                 Text(post.username, style: const TextStyle(fontSize: 12, color: Color(0xFF374151), fontWeight: FontWeight.w700)),
                 const SizedBox(width: 4),
@@ -42,13 +41,24 @@ class CommunityPostCard extends StatelessWidget {
                 const SizedBox(width: 4),
                 Text(post.relativeTime, style: const TextStyle(fontSize: 11, color: Color(0xFF9CA3AF))),
                 const Spacer(),
-                if (isPopular)
+                if (isPopular) ...[
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(color: const Color(0xFFFFE4E6), borderRadius: BorderRadius.circular(20)),
-                    child: const Text('🔥 인기', style: TextStyle(fontSize: 10, color: Color(0xFFEF4444), fontWeight: FontWeight.w800)),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFE4E6),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: const Text(
+                      '🔥 인기',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: Color(0xFFEF4444),
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
                   ),
-                if (isPopular) const SizedBox(width: 5),
+                  const SizedBox(width: 5),
+                ],
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
@@ -113,12 +123,6 @@ class CommunityPostCard extends StatelessWidget {
                 const Icon(Icons.mode_comment_outlined, size: 16, color: Color(0xFF9CA3AF)),
                 const SizedBox(width: 4),
                 Text('${post.commentCount}', style: const TextStyle(fontSize: 12, color: kCommunitySubtext)),
-                if (post.reportCount != null && post.reportCount! > 0) ...[
-                  const SizedBox(width: 18),
-                  const Icon(Icons.flag_outlined, size: 16, color: Color(0xFFEF4444)),
-                  const SizedBox(width: 4),
-                  Text('신고 ${post.reportCount}', style: const TextStyle(fontSize: 12, color: Color(0xFFEF4444))),
-                ],
               ],
             ),
           ],

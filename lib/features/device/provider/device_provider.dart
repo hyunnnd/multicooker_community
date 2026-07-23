@@ -19,6 +19,9 @@ class DeviceProvider extends ChangeNotifier {
   StreamSubscription<List<String>>? _scanSubscription;
   Timer? _scanTimeout;
   String? _lastConnectedName;
+  bool _autoReconnectInProgress = false;
+
+  bool autoReconnectEnabled = true;
 
   bool isConnected = false;
   bool isScanning = false;
@@ -28,6 +31,34 @@ class DeviceProvider extends ChangeNotifier {
   CookerState? status;
   List<String> devices = const [];
   ConnectionEvent? connectionEvent;
+  int reconnectAttempt = 0;
+
+  bool get reconnectingAfterLoss =>
+      autoReconnectEnabled &&
+      !isConnected &&
+      connectionEvent == ConnectionEvent.disconnectedByLoss &&
+      (isScanning || _autoReconnectInProgress);
+
+  String? get lastConnectedName => _lastConnectedName;
+
+  void setAutoReconnectEnabled(bool enabled) {
+    if (autoReconnectEnabled == enabled) return;
+    autoReconnectEnabled = enabled;
+    if (!enabled && connectionEvent == ConnectionEvent.disconnectedByLoss) {
+      unawaited(_stopLiveScan());
+      _autoReconnectInProgress = false;
+    } else if (enabled &&
+        connectionEvent == ConnectionEvent.disconnectedByLoss &&
+        _lastConnectedName != null &&
+        !isScanning &&
+        !_autoReconnectInProgress) {
+      reconnectAttempt = reconnectAttempt == 0 ? 1 : reconnectAttempt;
+      isScanning = true;
+      devices = const [];
+      unawaited(_startLiveScan(afterConnectionLoss: true));
+    }
+    notifyListeners();
+  }
 
   Future<void> scanDevices() async {
     isScanning = true;
@@ -49,6 +80,9 @@ class DeviceProvider extends ChangeNotifier {
     _scanSubscription = _service.scanResults.listen((next) {
       devices = next;
       notifyListeners();
+      if (afterConnectionLoss) {
+        unawaited(_attemptAutoReconnect(next));
+      }
     });
     await _startScanWithInitializationRetry();
     _scanTimeout = Timer(const Duration(seconds: 8), () async {
@@ -62,6 +96,52 @@ class DeviceProvider extends ChangeNotifier {
       }
       notifyListeners();
     });
+  }
+
+  Future<void> _attemptAutoReconnect(List<String> foundDevices) async {
+    final target = _lastConnectedName;
+    if (!autoReconnectEnabled ||
+        target == null ||
+        isConnected ||
+        _autoReconnectInProgress ||
+        !foundDevices.contains(target)) {
+      return;
+    }
+
+    _autoReconnectInProgress = true;
+    isBusy = true;
+    errorMessage = '쿠커에 자동으로 다시 연결하고 있습니다.';
+    notifyListeners();
+    try {
+      await _stopLiveScan();
+      await _service.connect(target);
+      isConnected = _service.isConnected;
+      if (isConnected) {
+        reconnectAttempt = 0;
+        deviceName = target;
+        errorMessage = null;
+      } else {
+        throw StateError('자동 재연결에 실패했습니다.');
+      }
+    } catch (error) {
+      isConnected = false;
+      deviceName = '연결된 기기 없음';
+      reconnectAttempt = reconnectAttempt < 3 ? reconnectAttempt + 1 : 3;
+      errorMessage = _message(error);
+      if (autoReconnectEnabled &&
+          connectionEvent == ConnectionEvent.disconnectedByLoss) {
+        await Future<void>.delayed(const Duration(seconds: 1));
+        if (autoReconnectEnabled && !isConnected) {
+          isScanning = true;
+          devices = const [];
+          unawaited(_startLiveScan(afterConnectionLoss: true));
+        }
+      }
+    } finally {
+      _autoReconnectInProgress = false;
+      isBusy = false;
+      notifyListeners();
+    }
   }
 
   Future<void> _startScanWithInitializationRetry() async {
@@ -140,6 +220,7 @@ class DeviceProvider extends ChangeNotifier {
   }
 
   Future<void> disconnect() async {
+    reconnectAttempt = 0;
     _lastConnectedName = null;
     await _service.disconnect();
     isConnected = false;
@@ -223,7 +304,11 @@ class DeviceProvider extends ChangeNotifier {
     connectionEvent = event;
     isConnected = event == ConnectionEvent.connected;
     if (isConnected) {
+      reconnectAttempt = 0;
       errorMessage = null;
+      if (deviceName != '연결된 기기 없음') {
+        _lastConnectedName = deviceName;
+      }
       unawaited(_stopLiveScan());
     } else {
       deviceName = '연결된 기기 없음';
@@ -236,8 +321,11 @@ class DeviceProvider extends ChangeNotifier {
         ConnectionEvent.connected => null,
       };
       if (event == ConnectionEvent.disconnectedByLoss &&
+          autoReconnectEnabled &&
           _lastConnectedName != null &&
-          !isScanning) {
+          !isScanning &&
+          !_autoReconnectInProgress) {
+        reconnectAttempt = reconnectAttempt == 0 ? 1 : reconnectAttempt;
         isScanning = true;
         devices = const [];
         unawaited(_startLiveScan(afterConnectionLoss: true));

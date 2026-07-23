@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../core/widgets/app_image.dart';
+import '../../../../core/widgets/app_more_menu_button.dart';
 import '../../../../core/widgets/main_navigation.dart';
 import '../../data/models/community_models.dart';
 import '../../provider/community_provider.dart';
@@ -35,7 +36,7 @@ class _CommunityPostDetailSectionState extends State<CommunityPostDetailSection>
 
   @override
   Widget build(BuildContext context) {
-    final provider = context.watch<CommunityProvider>();
+    final provider = context.read<CommunityProvider>();
     final post = provider.postById(widget.postId);
     if (post == null) {
       return Scaffold(
@@ -52,8 +53,8 @@ class _CommunityPostDetailSectionState extends State<CommunityPostDetailSection>
         leading: IconButton(onPressed: widget.onBack, icon: const Icon(Icons.arrow_back)),
         title: const Text('게시글', style: TextStyle(fontWeight: FontWeight.w900)),
         actions: [
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.more_horiz),
+          AppMoreMenuButton<String>(
+            tooltip: '게시글 메뉴',
             itemBuilder: (_) => [
               if (post.isMine) const PopupMenuItem(value: 'edit', child: Text('수정')),
               if (post.isMine) const PopupMenuItem(value: 'delete', child: Text('삭제')),
@@ -100,7 +101,7 @@ class _CommunityPostDetailSectionState extends State<CommunityPostDetailSection>
                     children: [
                       Row(
                         children: [
-                          CommunityAvatar(username: post.username, colorValue: post.avatarColor, size: 34),
+                          CommunityAvatar(username: post.username, colorValue: post.avatarColor, imageUrl: post.avatarImageUrl, size: 34),
                           const SizedBox(width: 10),
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -226,7 +227,7 @@ class CommunityPostEditSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final provider = context.watch<CommunityProvider>();
+    final provider = context.read<CommunityProvider>();
     final post = provider.postById(postId);
     if (post == null) return const SizedBox.shrink();
     return CommunityPostSheet(

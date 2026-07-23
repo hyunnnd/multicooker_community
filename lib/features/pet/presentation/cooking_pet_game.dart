@@ -44,8 +44,24 @@ class CookingPetGame extends FlameGame {
     if (_ready) _pet.setAppStatus(status, allowSleep: allowSleep);
   }
 
-  void playTapped() {
-    if (_ready) _pet.playTapped();
+  void playTapped({bool notify = true}) {
+    if (_ready) {
+      _pet.playTapped(notify: notify);
+    } else if (notify) {
+      onPetTapped?.call();
+    }
+  }
+
+  void startStruggling() {
+    if (_ready) _pet.startStruggling();
+  }
+
+  void stopStruggling() {
+    if (_ready) _pet.stopStruggling();
+  }
+
+  void recordUserInteraction() {
+    if (_ready) _pet.recordUserInteraction();
   }
 
   @override

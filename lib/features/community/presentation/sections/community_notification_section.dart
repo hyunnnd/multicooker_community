@@ -7,13 +7,13 @@ import '../community_styles.dart';
 import '../widgets/community_avatar.dart';
 
 class CommunityNotificationSheet extends StatelessWidget {
-  const CommunityNotificationSheet({required this.onOpenPost, super.key});
+  const CommunityNotificationSheet({required this.onOpenNotification, super.key});
 
-  final ValueChanged<int> onOpenPost;
+  final ValueChanged<CommunityNotification> onOpenNotification;
 
   @override
   Widget build(BuildContext context) {
-    final provider = context.watch<CommunityProvider>();
+    final provider = context.read<CommunityProvider>();
     final unread = provider.unreadCount;
     return SafeArea(
       child: Container(
@@ -51,7 +51,7 @@ class CommunityNotificationSheet extends StatelessWidget {
                     onTap: () {
                       provider.openNotification(notification.id);
                       Navigator.pop(context);
-                      onOpenPost(notification.postId);
+                      onOpenNotification(notification);
                     },
                   );
                 },
@@ -79,7 +79,7 @@ class _NotificationTile extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            CommunityAvatar(username: notification.fromUser, colorValue: notification.avatarColor, size: 34),
+            CommunityAvatar(username: notification.fromUser, colorValue: notification.avatarColor, imageUrl: notification.avatarImageUrl, size: 34),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -90,7 +90,16 @@ class _NotificationTile extends StatelessWidget {
                       style: const TextStyle(fontSize: 13, color: kCommunityText, height: 1.35),
                       children: [
                         TextSpan(text: notification.fromUser, style: const TextStyle(fontWeight: FontWeight.w900)),
-                        TextSpan(text: notification.type == NotificationType.comment ? '님이 내 글에 댓글을 달았어요' : '님이 내 댓글에 답글을 달았어요'),
+                        TextSpan(
+                          text: switch (notification.type) {
+                            NotificationType.reply => '님이 내 댓글에 답글을 달았어요',
+                            NotificationType.recipeComment => '님이 내 레시피에 댓글을 남겼어요',
+                            NotificationType.recipeReview => '님이 내 레시피에 후기를 남겼어요',
+                            NotificationType.like => '님이 좋아요를 눌렀어요',
+                            NotificationType.notice => '님이 새 공지사항을 등록했어요',
+                            NotificationType.comment => '님이 내 글에 댓글을 달았어요',
+                          },
+                        ),
                       ],
                     ),
                   ),

@@ -3,6 +3,9 @@ import 'package:provider/provider.dart';
 
 import 'app.dart';
 import 'core/language/language_provider.dart';
+import 'core/notifications/local_notification_service.dart';
+import 'core/notifications/remote_notification_service.dart';
+import 'core/router/app_router.dart';
 import 'core/network/dio_client.dart';
 import 'core/storage/secure_token_storage.dart';
 import 'features/ai_recommend/data/ai_recommend_repository.dart';
@@ -21,11 +24,21 @@ import 'features/profile/provider/profile_provider.dart';
 import 'features/recipe/data/api_recipe_repository.dart';
 import 'features/recipe/provider/recipe_provider.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   final tokenStorage = SecureTokenStorage();
+  final notificationService = LocalNotificationService(tokenStorage);
+  await notificationService.initialize(
+    onRouteRequested: (route) {
+      if (route.trim().isNotEmpty) appRouter.go(route);
+    },
+  );
   final dioClient = DioClient(tokenStorage);
+  final remoteNotificationService = RemoteNotificationService(
+    dio: dioClient.apiDio,
+    localNotifications: notificationService,
+  );
   final authRepository = AuthRepository(
     AuthApi(dioClient.authDio),
     LocalAuthApi(dioClient.apiDio),
@@ -37,6 +50,8 @@ void main() {
   runApp(
     MultiProvider(
       providers: [
+        Provider.value(value: notificationService),
+        Provider.value(value: remoteNotificationService),
         ChangeNotifierProvider(create: (_) => LanguageProvider()),
         ChangeNotifierProvider(create: (_) => AuthProvider(authRepository)),
         ChangeNotifierProvider(
@@ -58,7 +73,7 @@ void main() {
           create: (_) =>
               AiRecommendProvider(AiRecommendRepository(dioClient.apiDio)),
         ),
-        ChangeNotifierProvider(
+        ChangeNotifierProvider<CommunityProvider>(
           create: (_) =>
               CommunityProvider(CommunityRepository(dio: dioClient.apiDio)),
         ),

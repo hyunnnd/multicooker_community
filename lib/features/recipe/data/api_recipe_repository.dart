@@ -16,12 +16,16 @@ class ApiRecipeRepository extends RecipeRepository {
 
   @override
   Future<List<Recipe>> getRecipes() async {
-    final response = await _localDio.get<Object>('/recipes');
-    final recipes = recipeMapsFromResponse(response.data);
-    return [
-      for (var index = 0; index < recipes.length; index++)
-        _fromCatalogRecipeApi(recipes[index], index),
-    ];
+    // 공식 레시피와 공개 사용자 레시피를 함께 받고, 서버가 실제 DB에서
+    // 계산한 rating_average / review_count / usage_count를 그대로 사용합니다.
+    final response = await _localDio.get<Object>('/recipes/feed');
+    final maps = recipeMapsFromResponse(response.data);
+    final byId = <String, Recipe>{};
+    for (var index = 0; index < maps.length; index++) {
+      final recipe = _fromCatalogRecipeApi(maps[index], index);
+      byId[recipe.id] = recipe;
+    }
+    return byId.values.toList(growable: false);
   }
 
   @override
@@ -117,6 +121,26 @@ class ApiRecipeRepository extends RecipeRepository {
       );
     }
     return result;
+  }
+
+  @override
+  Future<Recipe> updateMyRecipeVisibility({
+    required String recipeId,
+    required String visibility,
+  }) async {
+    final numericId = int.tryParse(recipeId.trim());
+    if (numericId == null) {
+      throw ArgumentError('공개 범위를 변경할 레시피 ID가 올바르지 않습니다: $recipeId');
+    }
+    final response = await _localDio.patch<Map<String, dynamic>>(
+      '/users/me/recipes/$numericId/visibility',
+      data: {'visibility': visibility},
+    );
+    final raw = response.data?['recipe'];
+    if (raw is! Map) {
+      throw StateError('공개 범위가 변경된 레시피 응답이 없습니다.');
+    }
+    return _fromMyRecipeApi(Map<String, dynamic>.from(raw), 0);
   }
 
   @override
@@ -254,7 +278,11 @@ class ApiRecipeRepository extends RecipeRepository {
       instructionSteps: instructionSteps,
       cookerSteps: cookerSteps,
       isOfficial: _asBool(json['is_official']),
+      visibility: _recipeVisibility(json),
       author: (json['author'] ?? 'Graphene Square').toString(),
+      ratingAverage: numberAsDouble(json['rating_average']),
+      reviewCount: numberAsInt(json['review_count']),
+      usageCount: numberAsInt(json['usage_count']),
     );
   }
 
@@ -283,6 +311,12 @@ class ApiRecipeRepository extends RecipeRepository {
       (item) => item.name == name,
       orElse: () => RecipeCompatibilityType.fullAuto,
     );
+  }
+
+  String _recipeVisibility(Map<String, dynamic> json) {
+    if (_asBool(json['is_official'])) return 'public';
+    final value = json['visibility']?.toString().trim().toLowerCase();
+    return value == 'private' ? 'private' : 'public';
   }
 
   List<Map<String, dynamic>> _mapList(Object? value) {
@@ -385,7 +419,11 @@ class ApiRecipeRepository extends RecipeRepository {
           ),
       ],
       cookerSteps: cookerSteps,
+      visibility: _recipeVisibility(json),
       author: (json['author'] ?? json['nickname'] ?? '나의 레시피').toString(),
+      ratingAverage: numberAsDouble(json['rating_average']),
+      reviewCount: numberAsInt(json['review_count']),
+      usageCount: numberAsInt(json['usage_count']),
     );
   }
 

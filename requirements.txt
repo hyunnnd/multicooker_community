@@ -4,3 +4,4 @@ sqlmodel
 pydantic
 python-multipart
 python-dotenv
+firebase-admin

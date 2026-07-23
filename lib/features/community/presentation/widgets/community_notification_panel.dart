@@ -1,13 +1,18 @@
 part of '../community_screen.dart';
 
 class _NotificationPanel extends StatelessWidget {
-  const _NotificationPanel({required this.onClose, required this.onOpenPost});
+  const _NotificationPanel({
+    required this.onClose,
+    required this.onOpenNotification,
+    required this.onOpenAuthor,
+  });
   final VoidCallback onClose;
-  final ValueChanged<int> onOpenPost;
+  final ValueChanged<CommunityNotification> onOpenNotification;
+  final ValueChanged<int> onOpenAuthor;
 
   @override
   Widget build(BuildContext context) {
-    final provider = context.watch<CommunityProvider>();
+    final provider = context.read<CommunityProvider>();
     final unread = provider.unreadCount;
     return Stack(
       children: [
@@ -62,7 +67,7 @@ class _NotificationPanel extends StatelessWidget {
                               onTap: () async {
                                 await provider.openNotification(item.id);
                                 onClose();
-                                onOpenPost(item.postId);
+                                onOpenNotification(item);
                               },
                               child: Container(
                                 color: item.read ? Colors.white : _orange50,
@@ -70,19 +75,54 @@ class _NotificationPanel extends StatelessWidget {
                                 child: Row(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    _Avatar(name: item.fromUser, color: Color(item.avatarColor), size: 36, fontSize: 13),
+                                    GestureDetector(
+                                      onTap: item.fromUserId == null
+                                          ? null
+                                          : () {
+                                              onClose();
+                                              onOpenAuthor(item.fromUserId!);
+                                            },
+                                      child: _Avatar(
+                                        name: item.fromUser,
+                                        color: Color(item.avatarColor),
+                                        imageUrl: item.avatarImageUrl,
+                                        size: 36,
+                                        fontSize: 13,
+                                      ),
+                                    ),
                                     const SizedBox(width: 12),
                                     Expanded(
                                       child: Column(
                                         crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
-                                          Text.rich(
-                                            TextSpan(
-                                              text: item.fromUser,
-                                              style: const TextStyle(fontWeight: FontWeight.w700),
-                                              children: [TextSpan(text: item.type == NotificationType.reply ? '님이 내 댓글에 답글을 달았어요' : '님이 내 글에 댓글을 달았어요', style: const TextStyle(fontWeight: FontWeight.w400))],
+                                          GestureDetector(
+                                            behavior: HitTestBehavior.opaque,
+                                            onTap: item.fromUserId == null
+                                                ? null
+                                                : () {
+                                                    onClose();
+                                                    onOpenAuthor(item.fromUserId!);
+                                                  },
+                                            child: Text.rich(
+                                              TextSpan(
+                                                text: item.fromUser,
+                                                style: const TextStyle(fontWeight: FontWeight.w700),
+                                                children: [
+                                                  TextSpan(
+                                                    text: switch (item.type) {
+                                                      NotificationType.reply => '님이 내 댓글에 답글을 달았어요',
+                                                      NotificationType.recipeComment => '님이 내 레시피에 댓글을 남겼어요',
+                                                      NotificationType.recipeReview => '님이 내 레시피에 후기를 남겼어요',
+                                                      NotificationType.like => '님이 좋아요를 눌렀어요',
+                                                      NotificationType.notice => '님이 새 공지사항을 등록했어요',
+                                                      NotificationType.comment => '님이 내 글에 댓글을 달았어요',
+                                                    },
+                                                    style: const TextStyle(fontWeight: FontWeight.w400),
+                                                  ),
+                                                ],
+                                              ),
+                                              style: const TextStyle(fontSize: 13, height: 1.5, color: _text2),
                                             ),
-                                            style: const TextStyle(fontSize: 13, height: 1.5, color: _text2),
                                           ),
                                           const SizedBox(height: 2),
                                           Text(item.postContextText, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: _gray400)),

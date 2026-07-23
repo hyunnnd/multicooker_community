@@ -8,20 +8,32 @@ import re
 import secrets
 import sqlite3
 import time
+import threading
 from collections import deque
 from datetime import datetime, timedelta, timezone
 from html import escape
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, UploadFile, File
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from sqlalchemy import or_
+from sqlalchemy import event, or_
+from sqlalchemy.orm import Session as SQLAlchemySession
 from sqlmodel import Field, SQLModel, Session, create_engine, select
+
+try:
+    import firebase_admin
+    from firebase_admin import credentials as firebase_credentials
+    from firebase_admin import messaging as firebase_messaging
+except ImportError:  # Firebase 설정 전에도 로컬 서버는 정상 실행됩니다.
+    firebase_admin = None
+    firebase_credentials = None
+    firebase_messaging = None
 
 app = FastAPI(title="MultiCooker Local Community API", version="1.0.0")
 app.add_middleware(
@@ -332,6 +344,8 @@ class User(SQLModel, table=True):
     sex: str = "MALE"
     age: int = 0
     marketing_opt_in: bool = False
+    avatar_color: int = DEFAULT_AVATAR
+    avatar_image_url: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 class EmailCode(SQLModel, table=True):
@@ -380,6 +394,9 @@ class CommunityPost(SQLModel, table=True):
     force_popular: bool = False
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+    # 제목/본문/이미지 등 게시글 내용 자체가 수정된 시각입니다.
+    # 좋아요·댓글·인기도 변경은 이 값을 갱신하지 않습니다.
+    content_updated_at: Optional[datetime] = None
 
 class CommunityComment(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -441,22 +458,37 @@ class CommunityNotice(SQLModel, table=True):
 class CommunityNotification(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     target_user_id: Optional[int] = Field(default=None, index=True)
+    from_user_id: Optional[int] = Field(default=None, index=True)
     type: str = "comment"
     from_user: str
     avatar_color: int
     # post_title은 기존 DB 호환 및 게시글 이동에 사용합니다.
     post_title: str
-    post_id: int
+    post_id: int = 0
+    recipe_id: str = ""
+    notice_id: Optional[int] = Field(default=None, index=True)
     # 알림 두 번째 줄에 표시할 실제로 새로 작성된 내용의 스냅샷입니다.
     # 댓글 알림: 새 댓글 내용
     # 답글 알림: 새 답글 내용
     context_text: str = ""
     target_comment_id: Optional[int] = Field(default=None, index=True)
     target_reply_id: Optional[int] = Field(default=None, index=True)
+    target_recipe_comment_id: Optional[int] = Field(default=None, index=True)
+    target_review_id: Optional[int] = Field(default=None, index=True)
     time_ago: str = "방금 전"
     read: bool = False
     username: str = DEFAULT_USER
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+class PushDeviceToken(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True)
+    token: str = Field(index=True)
+    platform: str = "android"
+    active: bool = True
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
 
 class CommunityReport(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -567,7 +599,13 @@ class UserSettings(SQLModel, table=True):
     user_id: int = Field(index=True)
     cooking_notification: bool = True
     community_notification: bool = True
+    comment_notification: bool = True
+    reply_notification: bool = True
+    like_notification: bool = True
+    notice_notification: bool = True
     marketing_notification: bool = False
+    auto_reconnect: bool = True
+    slime_enabled: bool = True
     language: str = "ko"
     tutorial_completed: bool = False
     updated_at: datetime = Field(default_factory=datetime.utcnow)
@@ -590,6 +628,8 @@ class RecipeRecord(SQLModel, table=True):
     difficulty: str = "쉬움"
     servings: int = 1
     compatibility_type: str = "fullAuto"
+    # public: 모든 사용자가 조회 가능, private: 작성자만 조회 가능
+    visibility: str = "private"
     catalog_order: int = 0
     ingredients_json: str = "[]"
     instruction_steps_json: str = "[]"
@@ -695,6 +735,9 @@ class AdminReportPatchRequest(BaseModel):
     admin_note: str = ""
     delete_content: bool = False
 
+class AdminReportActionRequest(BaseModel):
+    admin_note: str = ""
+
 class DeviceVerifyRequest(BaseModel):
     mac_address: str = ""
 
@@ -709,6 +752,10 @@ class UploadRecipeRequest(BaseModel):
     title: str
     description: Optional[str] = None
     steps: list[RecipeStepIn]
+    visibility: str = "private"
+
+class RecipeVisibilityRequest(BaseModel):
+    visibility: str
 
 class UploadUrlRequest(BaseModel):
     filename: str
@@ -722,6 +769,8 @@ class UploadCompleteRequest(BaseModel):
 
 class UserPatchRequest(BaseModel):
     nickname: Optional[str] = None
+    avatar_color: Optional[int] = None
+    avatar_image_url: Optional[str] = None
 
 class PasswordPatchRequest(BaseModel):
     current_password: str = ""
@@ -730,9 +779,23 @@ class PasswordPatchRequest(BaseModel):
 class SettingsPatchRequest(BaseModel):
     cooking_notification: Optional[bool] = None
     community_notification: Optional[bool] = None
+    comment_notification: Optional[bool] = None
+    reply_notification: Optional[bool] = None
+    like_notification: Optional[bool] = None
+    notice_notification: Optional[bool] = None
     marketing_notification: Optional[bool] = None
+    auto_reconnect: Optional[bool] = None
+    slime_enabled: Optional[bool] = None
     language: Optional[str] = None
     tutorial_completed: Optional[bool] = None
+
+class NotificationTargetReadRequest(BaseModel):
+    post_id: Optional[int] = None
+    recipe_id: Optional[str] = None
+
+class PushTokenRequest(BaseModel):
+    token: str
+    platform: str = "android"
 
 class SaveRecipeRequest(BaseModel):
     recipe_id: int
@@ -805,7 +868,12 @@ def _avatar_for_user(user: User | None) -> int:
         0xFF2196F3, 0xFF9C27B0, 0xFFFF5722, 0xFF00BCD4,
         0xFF795548, 0xFF607D8B, 0xFF7C3AED, 0xFF16A34A,
     ]
-    if user is None or user.id is None:
+    if user is None:
+        return DEFAULT_AVATAR
+    stored = getattr(user, 'avatar_color', None)
+    if isinstance(stored, int) and stored != 0:
+        return stored
+    if user.id is None:
         return DEFAULT_AVATAR
     return palette[user.id % len(palette)]
 
@@ -973,6 +1041,29 @@ def _recipe_public_id(recipe: RecipeRecord) -> str:
     return str(recipe.id)
 
 
+def _normalize_recipe_visibility(value: Optional[str], *, official: bool = False) -> str:
+    if official:
+        return "public"
+    normalized = (value or "private").strip().lower()
+    if normalized not in {"public", "private"}:
+        raise HTTPException(status_code=400, detail="visibility must be public or private")
+    return normalized
+
+
+def _recipe_is_public(recipe: RecipeRecord) -> bool:
+    return bool(
+        recipe.is_official
+        or not recipe.is_personal
+        or (recipe.visibility or "private").strip().lower() == "public"
+    )
+
+
+def _can_view_recipe(recipe: RecipeRecord, user: Optional[User]) -> bool:
+    if _recipe_is_public(recipe):
+        return True
+    return bool(user is not None and recipe.owner_user_id == user.id)
+
+
 def _derived_cooker_steps(session: Session, recipe: RecipeRecord) -> list[dict]:
     rich_steps = _json_list(recipe.cooker_steps_json)
     if rich_steps:
@@ -999,11 +1090,64 @@ def _derived_cooker_steps(session: Session, recipe: RecipeRecord) -> list[dict]:
     return result
 
 
+
+
+def _recipe_stats(session: Session, recipe: RecipeRecord) -> dict:
+    # 후기 통계는 댓글 수와 완전히 분리합니다.
+    # 공식 레시피는 안정적인 client_id(public_id)만 사용합니다. DB의 숫자 PK까지
+    # 후보에 넣으면 과거 데모 후기(recipe_id="1", "2")가 실제 레시피에
+    # 잘못 합산되어 4.5 (2)처럼 표시될 수 있습니다.
+    public_id = _recipe_public_id(recipe).strip()
+    candidate_ids = {public_id}
+    client_id = (recipe.client_id or "").strip()
+    if client_id:
+        candidate_ids.add(client_id)
+    # 개인 레시피는 public_id 자체가 DB id이므로 그대로 정상 집계됩니다.
+    candidate_ids.discard("")
+
+    reviews = session.exec(
+        select(RecipeReview).where(RecipeReview.deleted == False)  # noqa: E712
+    ).all()
+    matched_reviews = [
+        row for row in reviews
+        if (row.recipe_id or "").strip() in candidate_ids
+    ]
+    review_count = len(matched_reviews)
+    rating_average = (
+        sum(max(1, min(5, int(row.rating or 0))) for row in matched_reviews) / review_count
+        if review_count
+        else 0.0
+    )
+
+    histories = session.exec(select(CookingHistory)).all()
+    usage_count = 0
+    for row in histories:
+        status = (row.status or "").strip().lower()
+        if status not in {"completed", "complete", "finished", "finish"}:
+            continue
+        history_ids = {(row.client_recipe_id or "").strip()}
+        if row.recipe_id is not None:
+            history_ids.add(str(row.recipe_id))
+        if candidate_ids.intersection(history_ids):
+            usage_count += 1
+
+    return {
+        "rating_average": round(rating_average, 1),
+        "review_count": review_count,
+        "usage_count": usage_count,
+    }
+
 def _recipe_payload(session: Session, recipe: RecipeRecord, include_similarity: bool = False, similarity: float = 0.88) -> dict:
     cooker_steps = _derived_cooker_steps(session, recipe)
     total_time = int(recipe.total_time_min or 0)
     if total_time <= 0:
         total_time = sum(max(0, int(step.get("time_min") or 0)) for step in cooker_steps)
+    recipe_author = recipe.author
+    if recipe.owner_user_id is not None:
+        owner = session.get(User, recipe.owner_user_id)
+        if owner is not None:
+            recipe_author = owner.nickname or _display_name_for_email(owner.email)
+
     payload = {
         "id": _recipe_public_id(recipe),
         "db_id": recipe.id,
@@ -1011,7 +1155,7 @@ def _recipe_payload(session: Session, recipe: RecipeRecord, include_similarity: 
         "title": recipe.title,
         "description": recipe.description or "",
         "thumbnail_url": recipe.thumbnail_url,
-        "author": recipe.author,
+        "author": recipe_author,
         "is_personal": recipe.is_personal,
         "is_gsq_suggested": recipe.is_gsq_suggested,
         "is_official": recipe.is_official,
@@ -1019,6 +1163,10 @@ def _recipe_payload(session: Session, recipe: RecipeRecord, include_similarity: 
         "difficulty": recipe.difficulty or "쉬움",
         "servings": max(1, int(recipe.servings or 1)),
         "compatibility_type": recipe.compatibility_type or "fullAuto",
+        "visibility": _normalize_recipe_visibility(
+            recipe.visibility, official=bool(recipe.is_official or not recipe.is_personal)
+        ),
+        "is_public": _recipe_is_public(recipe),
         "ingredients": _json_list(recipe.ingredients_json),
         "instruction_steps": _json_list(recipe.instruction_steps_json),
         "cooker_steps": cooker_steps,
@@ -1026,6 +1174,7 @@ def _recipe_payload(session: Session, recipe: RecipeRecord, include_similarity: 
             {"temperature": step.temperature, "time_offset": step.time_offset, "label": step.label}
             for step in _recipe_steps(session, recipe.id or 0)
         ],
+        **_recipe_stats(session, recipe),
     }
     if include_similarity:
         payload["similarity"] = similarity
@@ -1040,11 +1189,34 @@ def _liked_comment(session: Session, comment_id: int, username: str) -> bool:
 def _liked_reply(session: Session, reply_id: int, username: str) -> bool:
     return session.exec(select(ReplyLike).where(ReplyLike.reply_id == reply_id).where(ReplyLike.username == username)).first() is not None
 
-def _utc_iso(value: datetime) -> str:
+def _utc_iso(value: Optional[datetime]) -> Optional[str]:
+    if value is None:
+        return None
     if value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc).isoformat().replace('+00:00', 'Z')
 
+
+
+
+def _live_author_profile(session: Session, owner_user_id: Optional[int], fallback_name: str, fallback_color: int) -> tuple[str, int, Optional[str]]:
+    """Return the latest profile for community content without rewriting old rows."""
+    if owner_user_id is None:
+        return fallback_name, fallback_color, None
+    owner = session.get(User, owner_user_id)
+    if owner is None:
+        return fallback_name, fallback_color, None
+    return (
+        owner.nickname or _display_name_for_email(owner.email),
+        _avatar_for_user(owner),
+        owner.avatar_image_url,
+    )
+
+
+def _author_is_admin(session: Session, owner_user_id: Optional[int]) -> bool:
+    if owner_user_id is None:
+        return False
+    return _is_admin(session.get(User, owner_user_id))
 
 def _reply_payload(
     session: Session,
@@ -1053,14 +1225,18 @@ def _reply_payload(
     blocked: tuple[set[int], set[str]] | None = None,
 ) -> dict:
     viewer_key = _user_key(user)
+    author_name, author_color, author_image = _live_author_profile(session, reply.owner_user_id, reply.username, reply.avatar_color)
     return {
         "id": reply.id,
         "author_user_id": reply.owner_user_id,
-        "username": reply.username,
-        "avatar_color": reply.avatar_color,
+        "username": author_name,
+        "avatar_color": author_color,
+        "avatar_image_url": author_image,
         "content": reply.content,
         "time_ago": reply.time_ago,
         "created_at": _utc_iso(reply.created_at),
+        "updated_at": _utc_iso(reply.updated_at),
+        "author_is_admin": _author_is_admin(session, reply.owner_user_id),
         "likes": reply.likes,
         "report_count": reply.reports if _is_admin(user) else None,
         "is_liked": _liked_reply(session, reply.id, viewer_key),
@@ -1075,6 +1251,7 @@ def _comment_payload(
     blocked: tuple[set[int], set[str]] | None = None,
 ) -> dict:
     viewer_key = _user_key(user)
+    author_name, author_color, author_image = _live_author_profile(session, comment.owner_user_id, comment.username, comment.avatar_color)
     blocked = blocked or _blocked_author_sets(session, user)
     replies = session.exec(
         select(CommunityReply)
@@ -1088,11 +1265,14 @@ def _comment_payload(
     return {
         "id": comment.id,
         "author_user_id": comment.owner_user_id,
-        "username": comment.username,
-        "avatar_color": comment.avatar_color,
+        "username": author_name,
+        "avatar_color": author_color,
+        "avatar_image_url": author_image,
         "content": comment.content,
         "time_ago": comment.time_ago,
         "created_at": _utc_iso(comment.created_at),
+        "updated_at": _utc_iso(comment.updated_at),
+        "author_is_admin": _author_is_admin(session, comment.owner_user_id),
         "likes": comment.likes,
         "report_count": comment.reports if _is_admin(user) else None,
         "is_liked": _liked_comment(session, comment.id, viewer_key),
@@ -1108,6 +1288,7 @@ def _post_payload(
     blocked: tuple[set[int], set[str]] | None = None,
 ) -> dict:
     viewer_key = _user_key(user)
+    author_name, author_color, author_image = _live_author_profile(session, post.owner_user_id, post.username, post.avatar_color)
     blocked = blocked or _blocked_author_sets(session, user)
     comments = session.exec(
         select(CommunityComment)
@@ -1122,10 +1303,13 @@ def _post_payload(
         "id": post.id,
         "author_user_id": post.owner_user_id,
         "category": post.category,
-        "username": post.username,
-        "avatar_color": post.avatar_color,
+        "username": author_name,
+        "avatar_color": author_color,
+        "avatar_image_url": author_image,
         "time_ago": post.time_ago,
         "created_at": _utc_iso(post.created_at),
+        "updated_at": _utc_iso(post.content_updated_at or post.created_at),
+        "author_is_admin": _author_is_admin(session, post.owner_user_id),
         "title": post.title,
         "content": post.content,
         "likes": post.likes,
@@ -1145,18 +1329,22 @@ def _post_payload(
 
 def _review_payload(session: Session, review: RecipeReview, user: User) -> dict:
     viewer_key = _user_key(user)
+    author_name, author_color, author_image = _live_author_profile(session, review.owner_user_id, review.username, review.avatar_color)
     liked = session.exec(select(ReviewLike).where(ReviewLike.review_id == review.id).where(ReviewLike.username == viewer_key)).first() is not None
     return {
         "id": review.id,
         "author_user_id": review.owner_user_id,
-        "username": review.username,
-        "avatar_color": review.avatar_color,
+        "username": author_name,
+        "avatar_color": author_color,
+        "avatar_image_url": author_image,
         "recipe_title": review.recipe_title,
         "recipe_image": review.recipe_image,
         "rating": review.rating,
         "content": review.content,
         "date": review.date,
         "created_at": _utc_iso(review.created_at),
+        "updated_at": _utc_iso(review.updated_at),
+        "author_is_admin": _author_is_admin(session, review.owner_user_id),
         "likes": review.likes,
         "comment_count": review.comment_count,
         "recipe_id": review.recipe_id,
@@ -1165,17 +1353,26 @@ def _review_payload(session: Session, review: RecipeReview, user: User) -> dict:
     }
 
 
-def _recipe_comment_payload(comment: RecipeComment, user: User) -> dict:
+def _recipe_comment_payload(session: Session, comment: RecipeComment, user: User) -> dict:
+    author_name, author_color, author_image = _live_author_profile(session, comment.owner_user_id, comment.username, comment.avatar_color)
+    recipe = _recipe_for_client_id(session, comment.recipe_id)
+    is_recipe_author = bool(
+        recipe is not None
+        and recipe.owner_user_id is not None
+        and comment.owner_user_id == recipe.owner_user_id
+    )
     return {
         "id": comment.id,
         "recipe_id": comment.recipe_id,
         "recipe_title": comment.recipe_title,
         "author_user_id": comment.owner_user_id,
-        "username": comment.username,
-        "avatar_color": comment.avatar_color,
+        "username": author_name,
+        "avatar_color": author_color,
+        "avatar_image_url": author_image,
         "content": comment.content,
         "created_at": _utc_iso(comment.created_at),
         "is_mine": _is_owner(comment, user),
+        "is_recipe_author": is_recipe_author,
     }
 
 def _sort_posts(session: Session, posts: list[CommunityPost], sort: str) -> list[CommunityPost]:
@@ -1196,14 +1393,142 @@ def _inc_activity_comment(post: CommunityPost) -> None:
     post.activity_d6_comments += 1
     post.activity_d9_comments += 1
     post.activity_d12_comments += 1
-    post.updated_at = datetime.utcnow()
 
 def _inc_activity_like(post: CommunityPost, delta: int) -> None:
     post.activity_d3_likes = max(0, post.activity_d3_likes + delta)
     post.activity_d6_likes = max(0, post.activity_d6_likes + delta)
     post.activity_d9_likes = max(0, post.activity_d9_likes + delta)
     post.activity_d12_likes = max(0, post.activity_d12_likes + delta)
-    post.updated_at = datetime.utcnow()
+
+def _init_firebase_admin() -> bool:
+    if firebase_admin is None or firebase_messaging is None:
+        return False
+    try:
+        if firebase_admin._apps:
+            return True
+        raw_credential = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON", "").strip()
+        if raw_credential:
+            if raw_credential.startswith("{"):
+                credential = firebase_credentials.Certificate(json.loads(raw_credential))
+            else:
+                credential_path = Path(raw_credential).expanduser()
+                if not credential_path.is_file():
+                    api_logger.warning("Firebase service account file not found: %s", credential_path)
+                    return False
+                credential = firebase_credentials.Certificate(str(credential_path))
+            firebase_admin.initialize_app(credential)
+            return True
+        if os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "").strip():
+            firebase_admin.initialize_app()
+            return True
+    except Exception as exc:
+        api_logger.exception("Firebase Admin initialization failed: %s", exc)
+    return False
+
+
+def _send_push_payload(payload: dict) -> None:
+    if not _init_firebase_admin():
+        return
+    tokens = [str(token).strip() for token in payload.get("tokens", []) if str(token).strip()]
+    if not tokens:
+        return
+
+    data = {
+        "notification_id": str(payload.get("notification_id") or ""),
+        "type": str(payload.get("type") or "comment"),
+        "route": str(payload.get("route") or "/community"),
+        "title": str(payload.get("title") or "새 알림"),
+        "body": str(payload.get("body") or ""),
+        "unread_count": str(payload.get("unread_count") or 1),
+    }
+    try:
+        message = firebase_messaging.MulticastMessage(
+            tokens=tokens,
+            notification=firebase_messaging.Notification(
+                title=data["title"],
+                body=data["body"],
+            ),
+            data=data,
+            android=firebase_messaging.AndroidConfig(
+                priority="high",
+                collapse_key="community_summary",
+                notification=firebase_messaging.AndroidNotification(
+                    channel_id="community_summary",
+                    tag="community_summary",
+                    notification_count=int(data["unread_count"]),
+                    click_action="FLUTTER_NOTIFICATION_CLICK",
+                ),
+            ),
+            apns=firebase_messaging.APNSConfig(
+                headers={"apns-collapse-id": "community_summary"},
+                payload=firebase_messaging.APNSPayload(
+                    aps=firebase_messaging.Aps(
+                        badge=int(data["unread_count"]),
+                        sound="default",
+                        thread_id="community_summary",
+                    )
+                ),
+            ),
+        )
+        sender = getattr(firebase_messaging, "send_each_for_multicast", None)
+        if sender is not None:
+            response = sender(message)
+        else:
+            response = firebase_messaging.send_multicast(message)
+        api_logger.info(
+            "FCM push sent | notification=%s success=%s failure=%s",
+            data["notification_id"],
+            response.success_count,
+            response.failure_count,
+        )
+    except Exception as exc:
+        api_logger.exception("FCM push send failed: %s", exc)
+
+
+def _queue_push_after_commit(session: Session, payload: dict) -> None:
+    session.info.setdefault("pending_push_payloads", []).append(payload)
+
+
+@event.listens_for(SQLAlchemySession, "after_commit")
+def _dispatch_pushes_after_commit(session) -> None:
+    payloads = session.info.pop("pending_push_payloads", [])
+    for payload in payloads:
+        threading.Thread(
+            target=_send_push_payload,
+            args=(payload,),
+            daemon=True,
+            name="multicooker-fcm",
+        ).start()
+
+
+@event.listens_for(SQLAlchemySession, "after_rollback")
+def _clear_pushes_after_rollback(session) -> None:
+    session.info.pop("pending_push_payloads", None)
+
+
+def _notification_phone_title(notification_type: str, from_name: str) -> str:
+    return {
+        "reply": f"{from_name}님이 내 댓글에 답글을 달았습니다.",
+        "recipe_comment": f"{from_name}님이 내 레시피에 댓글을 남겼습니다.",
+        "recipe_review": f"{from_name}님이 내 레시피에 후기를 남겼습니다.",
+        "like": f"{from_name}님이 내 글에 좋아요를 눌렀습니다.",
+        "notice": "새 공지사항이 등록되었습니다.",
+    }.get(notification_type, f"{from_name}님이 내 글에 댓글을 달았습니다.")
+
+
+def _notification_enabled(settings: Optional[UserSettings], notification_type: str) -> bool:
+    if settings is None:
+        return True
+    if notification_type in {"comment", "recipe_comment", "recipe_review"}:
+        return settings.comment_notification
+    if notification_type == "reply":
+        return settings.reply_notification
+    if notification_type == "like":
+        return settings.like_notification
+    if notification_type == "notice":
+        return settings.notice_notification
+    return settings.community_notification
+
 
 def _add_notification(
     session: Session,
@@ -1213,33 +1538,172 @@ def _add_notification(
     notification_type: str,
     from_user: User,
     post_title: str,
-    post_id: int,
+    post_id: int = 0,
+    recipe_id: str = "",
+    notice_id: Optional[int] = None,
     context_text: str = "",
     target_comment_id: Optional[int] = None,
     target_reply_id: Optional[int] = None,
-) -> None:
-    """Create an in-app community notification for another user."""
+    target_recipe_comment_id: Optional[int] = None,
+    target_review_id: Optional[int] = None,
+) -> Optional[CommunityNotification]:
+    """Create one in-app notification and queue one FCM push after commit."""
     from_name = from_user.nickname or _display_name_for_email(from_user.email)
-    if target_user_id is not None and target_user_id == from_user.id:
-        return
-    if target_user_id is None and target_username == from_name:
-        return
-    session.add(
-        CommunityNotification(
-            target_user_id=target_user_id,
-            type=notification_type,
-            from_user=from_name,
-            avatar_color=_avatar_for_user(from_user),
-            post_title=post_title,
-            post_id=post_id,
-            context_text=context_text,
-            target_comment_id=target_comment_id,
-            target_reply_id=target_reply_id,
-            time_ago="방금 전",
-            read=False,
-            username=target_username,
+    normalized_target_name = (target_username or "").strip()
+
+    target_user = session.get(User, target_user_id) if target_user_id is not None else None
+    if target_user is None and normalized_target_name:
+        target_user = session.exec(
+            select(User).where(User.nickname == normalized_target_name)
+        ).first()
+    if target_user is not None:
+        target_user_id = target_user.id
+        normalized_target_name = (
+            target_user.nickname or _display_name_for_email(target_user.email)
         )
+
+    own_names = {
+        from_name.strip().lower(),
+        _display_name_for_email(from_user.email).strip().lower(),
+        (from_user.email or "").strip().lower(),
+    }
+    if target_user_id == from_user.id:
+        return None
+    if normalized_target_name.strip().lower() in own_names:
+        return None
+    if target_user_id is None and not normalized_target_name:
+        return None
+
+    # 네트워크 재시도나 좋아요 재탭으로 같은 알림이 중복 생성되지 않도록 합니다.
+    if notification_type == "like":
+        statement = (
+            select(CommunityNotification)
+            .where(CommunityNotification.type == "like")
+            .where(CommunityNotification.from_user_id == from_user.id)
+            .where(CommunityNotification.post_id == post_id)
+            .where(CommunityNotification.recipe_id == (recipe_id or "").strip())
+        )
+        if target_user_id is not None:
+            statement = statement.where(
+                CommunityNotification.target_user_id == target_user_id
+            )
+        if target_comment_id is not None:
+            statement = statement.where(
+                CommunityNotification.target_comment_id == target_comment_id
+            )
+        if target_reply_id is not None:
+            statement = statement.where(
+                CommunityNotification.target_reply_id == target_reply_id
+            )
+        if target_review_id is not None:
+            statement = statement.where(
+                CommunityNotification.target_review_id == target_review_id
+            )
+        existing_like = session.exec(statement).first()
+        if existing_like is not None:
+            return existing_like
+
+    if notification_type == "notice" and notice_id is not None:
+        statement = (
+            select(CommunityNotification)
+            .where(CommunityNotification.type == "notice")
+            .where(CommunityNotification.notice_id == notice_id)
+        )
+        if target_user_id is not None:
+            statement = statement.where(
+                CommunityNotification.target_user_id == target_user_id
+            )
+        existing_notice = session.exec(statement).first()
+        if existing_notice is not None:
+            return existing_notice
+
+    # 네트워크 재시도 때문에 같은 댓글/답글/후기가 두 번 처리되어도 알림은 한 번만 생성합니다.
+    dedupe_fields = [
+        (CommunityNotification.target_reply_id, target_reply_id),
+        (CommunityNotification.target_recipe_comment_id, target_recipe_comment_id),
+        (CommunityNotification.target_review_id, target_review_id),
+        (CommunityNotification.target_comment_id, target_comment_id),
+    ]
+    for field, value in dedupe_fields:
+        if value is None:
+            continue
+        statement = select(CommunityNotification).where(
+            CommunityNotification.type == notification_type
+        ).where(field == value)
+        if target_user_id is not None:
+            statement = statement.where(
+                CommunityNotification.target_user_id == target_user_id
+            )
+        existing = session.exec(statement).first()
+        if existing is not None:
+            return existing
+        break
+
+    row = CommunityNotification(
+        target_user_id=target_user_id,
+        from_user_id=from_user.id,
+        type=notification_type,
+        from_user=from_name,
+        avatar_color=_avatar_for_user(from_user),
+        post_title=post_title,
+        post_id=post_id,
+        recipe_id=(recipe_id or "").strip(),
+        notice_id=notice_id,
+        context_text=context_text,
+        target_comment_id=target_comment_id,
+        target_reply_id=target_reply_id,
+        target_recipe_comment_id=target_recipe_comment_id,
+        target_review_id=target_review_id,
+        time_ago="방금 전",
+        read=False,
+        username=normalized_target_name,
     )
+    session.add(row)
+    session.flush()
+
+    if target_user_id is not None:
+        target_settings = session.exec(
+            select(UserSettings).where(UserSettings.user_id == target_user_id)
+        ).first()
+        push_allowed = _notification_enabled(target_settings, notification_type)
+        token_rows = session.exec(
+            select(PushDeviceToken)
+            .where(PushDeviceToken.user_id == target_user_id)
+            .where(PushDeviceToken.active == True)
+        ).all() if push_allowed else []
+        if token_rows:
+            unread_rows = session.exec(
+                select(CommunityNotification)
+                .where(CommunityNotification.target_user_id == target_user_id)
+                .where(CommunityNotification.read == False)
+            ).all()
+            normalized_recipe_id = (recipe_id or "").strip()
+            if notice_id is not None:
+                route = f"/community?noticeId={notice_id}"
+            elif normalized_recipe_id:
+                route = f"/recipes/{quote(normalized_recipe_id, safe='')}"
+            else:
+                route_params = [f"postId={post_id}"]
+                if target_comment_id is not None:
+                    route_params.append(f"commentId={target_comment_id}")
+                if target_reply_id is not None:
+                    route_params.append(f"replyId={target_reply_id}")
+                route = "/community?" + "&".join(route_params)
+            _queue_push_after_commit(
+                session,
+                {
+                    "tokens": [token.token for token in token_rows],
+                    "notification_id": row.id,
+                    "type": notification_type,
+                    "route": route,
+                    "title": _notification_phone_title(notification_type, from_name),
+                    "body": _short_notification_context(
+                        context_text or post_title or "새 알림", 120
+                    ),
+                    "unread_count": max(1, len(unread_rows)),
+                },
+            )
+    return row
 
 def _record_report(session: Session, *, target_type: str, target_id: int, user: User, reason: str) -> bool:
     """Return True only when this user reports the target for the first time."""
@@ -1298,7 +1762,13 @@ def _settings_payload(row: UserSettings) -> dict:
     return {
         "cooking_notification": row.cooking_notification,
         "community_notification": row.community_notification,
+        "comment_notification": row.comment_notification,
+        "reply_notification": row.reply_notification,
+        "like_notification": row.like_notification,
+        "notice_notification": row.notice_notification,
         "marketing_notification": row.marketing_notification,
+        "auto_reconnect": row.auto_reconnect,
+        "slime_enabled": row.slime_enabled,
         "language": row.language,
         "tutorial_completed": row.tutorial_completed,
     }
@@ -1359,7 +1829,9 @@ def _recipe_for_client_id(session: Session, client_id: str) -> Optional[RecipeRe
 def _saved_recipe_payload(session: Session, saved: SavedRecipe) -> Optional[dict]:
     """Return a stable recipe card even when the recipe lives on the company server."""
     recipe = session.get(RecipeRecord, saved.recipe_id) if saved.recipe_id else None
-    if recipe is not None and not saved.title:
+    if recipe is None and saved.client_id:
+        recipe = _recipe_for_client_id(session, saved.client_id)
+    if recipe is not None:
         payload = _recipe_card_payload(session, recipe, saved.created_at)
         payload["client_id"] = saved.client_id or payload["id"]
         return payload
@@ -1448,7 +1920,7 @@ def _my_comment_payload(comment: CommunityComment, post: CommunityPost) -> dict:
         "post_category": post.category or "커뮤니티",
         "content": comment.content,
         "time_ago": comment.time_ago,
-        "created_at": comment.created_at.isoformat() if comment.created_at else None,
+        "created_at": _utc_iso(comment.created_at) if comment.created_at else None,
     }
 
 def _my_reply_payload(reply: CommunityReply, comment: CommunityComment, post: CommunityPost) -> dict:
@@ -1461,7 +1933,7 @@ def _my_reply_payload(reply: CommunityReply, comment: CommunityComment, post: Co
         "post_category": post.category or "커뮤니티",
         "content": reply.content,
         "time_ago": reply.time_ago,
-        "created_at": reply.created_at.isoformat() if reply.created_at else None,
+        "created_at": _utc_iso(reply.created_at) if reply.created_at else None,
     }
 
 # -----------------------------------------------------------------------------
@@ -1484,23 +1956,25 @@ def local_auth_sync(data: LocalAuthSyncRequest, session: Session = Depends(get_s
     email = (data.email or "").strip()
     if not email:
         raise HTTPException(status_code=400, detail="이메일 정보가 필요합니다.")
-    nickname = (data.nickname or "").strip() or _display_name_for_email(email)
+    requested_nickname = (data.nickname or "").strip() or _display_name_for_email(email)
     user = session.exec(select(User).where(User.email == email)).first()
     if not user:
         user = User(
             email=email,
             password_hash="EXTERNAL_COMPANY_AUTH",
-            nickname=nickname,
+            nickname=requested_nickname,
         )
         session.add(user)
         session.commit()
         session.refresh(user)
-    else:
-        if nickname and user.nickname != nickname:
-            user.nickname = nickname
-            session.add(user)
-            session.commit()
-            session.refresh(user)
+    elif not (user.nickname or "").strip():
+        # local_sync is a login bridge, not a profile update API.
+        # Preserve the nickname edited through PATCH /users/me on every login.
+        user.nickname = requested_nickname
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+    settings = _settings_for_user(session, user)
     access = _token()
     refresh = _token()
     session.add(SessionToken(user_id=user.id, access_token=access, refresh_token=refresh))
@@ -1514,8 +1988,11 @@ def local_auth_sync(data: LocalAuthSyncRequest, session: Session = Depends(get_s
             "email": user.email,
             "nickname": user.nickname or _display_name_for_email(user.email),
             "avatar_color": _avatar_for_user(user),
+            "avatar_image_url": user.avatar_image_url,
             "is_admin": _is_admin(user),
+            "tutorial_completed": settings.tutorial_completed,
         },
+        "tutorial_completed": settings.tutorial_completed,
     }
 
 @app.post("/auth/register/send_email_code")
@@ -1554,14 +2031,30 @@ def complete_register(data: CompleteRegisterRequest, session: Session = Depends(
 
 @app.post("/auth/reset_password/send_email_code")
 def send_reset_password_email_code(data: SendEmailRequest, session: Session = Depends(get_session)):
-    session.add(EmailCode(email=data.email, code="123456", purpose="RESET_PASSWORD", verified=False))
+    email = data.email.strip().lower()
+    if not email:
+        raise HTTPException(status_code=400, detail="이메일을 입력해 주세요.")
+    user = session.exec(select(User).where(User.email == email)).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="가입되지 않은 이메일입니다.")
+    if user.password_hash == "EXTERNAL_COMPANY_AUTH":
+        raise HTTPException(
+            status_code=400,
+            detail="Google 로그인 계정은 Google 계정 설정에서 비밀번호를 변경해 주세요.",
+        )
+    session.add(EmailCode(email=email, code="123456", purpose="RESET_PASSWORD", verified=False))
     session.commit()
     return {"message": "local code saved", "test_code": "123456"}
 
 @app.post("/auth/reset_password/verify_email_code")
 def verify_reset_password_email_code(data: VerifyCodeRequest, session: Session = Depends(get_session)):
-    codes = session.exec(select(EmailCode).where(EmailCode.email == data.email).where(EmailCode.purpose == "RESET_PASSWORD")).all()
-    if not codes or codes[-1].code != data.code:
+    email = data.email.strip().lower()
+    codes = session.exec(
+        select(EmailCode)
+        .where(EmailCode.email == email)
+        .where(EmailCode.purpose == "RESET_PASSWORD")
+    ).all()
+    if not codes or codes[-1].code != data.code.strip():
         raise HTTPException(status_code=400, detail="Invalid code. 로컬 테스트 코드는 123456입니다.")
     codes[-1].verified = True
     session.add(codes[-1])
@@ -1570,11 +2063,29 @@ def verify_reset_password_email_code(data: VerifyCodeRequest, session: Session =
 
 @app.post("/auth/reset_password/complete")
 def complete_reset_password(data: CompleteResetPasswordRequest, session: Session = Depends(get_session)):
-    user = session.exec(select(User).where(User.email == data.email)).first()
+    email = data.email.strip().lower()
+    new_password = data.new_password
+    if len(new_password) < 8:
+        raise HTTPException(status_code=400, detail="새 비밀번호는 8자 이상이어야 합니다.")
+    user = session.exec(select(User).where(User.email == email)).first()
     if not user:
         raise HTTPException(status_code=404, detail="가입되지 않은 이메일입니다.")
-    user.password_hash = _hash(data.new_password)
+    if user.password_hash == "EXTERNAL_COMPANY_AUTH":
+        raise HTTPException(
+            status_code=400,
+            detail="Google 로그인 계정은 Google 계정 설정에서 비밀번호를 변경해 주세요.",
+        )
+    codes = session.exec(
+        select(EmailCode)
+        .where(EmailCode.email == email)
+        .where(EmailCode.purpose == "RESET_PASSWORD")
+    ).all()
+    if not codes or not codes[-1].verified:
+        raise HTTPException(status_code=400, detail="이메일 인증을 먼저 완료해 주세요.")
+    user.password_hash = _hash(new_password)
     session.add(user)
+    # 인증코드는 한 번만 사용할 수 있도록 소비 처리합니다.
+    session.delete(codes[-1])
     session.commit()
     return {"message": "password reset"}
 
@@ -1610,13 +2121,19 @@ def logout(data: RefreshRequest, session: Session = Depends(get_session)):
     return {"message": "logged out"}
 
 @app.get("/auth/me")
-def me(user: User = Depends(_current_user)):
+def me(
+    session: Session = Depends(get_session),
+    user: User = Depends(_current_user),
+):
+    settings = _settings_for_user(session, user)
     return {
         "id": user.id,
         "email": user.email,
         "nickname": user.nickname or _display_name_for_email(user.email),
         "avatar_color": _avatar_for_user(user),
+        "avatar_image_url": user.avatar_image_url,
         "is_admin": _is_admin(user),
+        "tutorial_completed": settings.tutorial_completed,
     }
 
 
@@ -1642,6 +2159,7 @@ def get_my_profile(session: Session = Depends(get_session), user: User = Depends
         "email": user.email,
         "nickname": my_name,
         "avatar_color": _avatar_for_user(user),
+        "avatar_image_url": user.avatar_image_url,
         "recipe_count": recipe_count,
         "review_count": review_count,
         "comment_count": comment_count + reply_count,
@@ -1664,22 +2182,102 @@ def patch_my_profile(data: UserPatchRequest, session: Session = Depends(get_sess
         user.nickname = nickname
         session.add(user)
         # 기존 표시명 기반 데이터도 같이 갱신하여 내 글/후기 목록이 끊기지 않도록 합니다.
-        for post in session.exec(select(CommunityPost).where(CommunityPost.owner_user_id == user.id)).all():
+        for post in session.exec(select(CommunityPost).where(or_(CommunityPost.owner_user_id == user.id, CommunityPost.username == old_name))).all():
+            post.owner_user_id = user.id
             post.username = nickname
             session.add(post)
-        for comment in session.exec(select(CommunityComment).where(CommunityComment.owner_user_id == user.id)).all():
+        for comment in session.exec(select(CommunityComment).where(or_(CommunityComment.owner_user_id == user.id, CommunityComment.username == old_name))).all():
+            comment.owner_user_id = user.id
             comment.username = nickname
             session.add(comment)
-        for reply in session.exec(select(CommunityReply).where(CommunityReply.owner_user_id == user.id)).all():
+        for reply in session.exec(select(CommunityReply).where(or_(CommunityReply.owner_user_id == user.id, CommunityReply.username == old_name))).all():
+            reply.owner_user_id = user.id
             reply.username = nickname
             session.add(reply)
         for review in session.exec(select(RecipeReview).where(or_(RecipeReview.owner_user_id == user.id, RecipeReview.username == old_name))).all():
             review.owner_user_id = user.id
             review.username = nickname
             session.add(review)
+        for recipe_comment in session.exec(select(RecipeComment).where(or_(RecipeComment.owner_user_id == user.id, RecipeComment.username == old_name))).all():
+            recipe_comment.owner_user_id = user.id
+            recipe_comment.username = nickname
+            session.add(recipe_comment)
+        owned_recipes = session.exec(select(RecipeRecord).where(RecipeRecord.owner_user_id == user.id)).all()
+        owned_recipe_ids = {recipe.id for recipe in owned_recipes if recipe.id is not None}
+        owned_client_ids = {_recipe_public_id(recipe) for recipe in owned_recipes}
+        owned_client_ids.update((recipe.client_id or "").strip() for recipe in owned_recipes)
+        owned_client_ids.discard("")
+        for recipe in owned_recipes:
+            recipe.author = nickname
+            session.add(recipe)
+        for saved in session.exec(select(SavedRecipe)).all():
+            if saved.recipe_id in owned_recipe_ids or (saved.client_id or "").strip() in owned_client_ids:
+                saved.author = nickname
+                session.add(saved)
+        for notification in session.exec(
+            select(CommunityNotification).where(
+                or_(
+                    CommunityNotification.from_user_id == user.id,
+                    CommunityNotification.from_user == old_name,
+                )
+            )
+        ).all():
+            notification.from_user_id = user.id
+            notification.from_user = nickname
+            notification.avatar_color = _avatar_for_user(user)
+            session.add(notification)
+    if data.avatar_color is not None:
+        user.avatar_color = int(data.avatar_color)
+        session.add(user)
+    if data.avatar_image_url is not None:
+        user.avatar_image_url = data.avatar_image_url.strip() or None
+        session.add(user)
     session.commit()
     session.refresh(user)
     return get_my_profile(session=session, user=user)
+
+@app.post("/users/me/profile-image")
+async def upload_my_profile_image(
+    request: Request,
+    file: UploadFile = File(...),
+    session: Session = Depends(get_session),
+    user: User = Depends(_current_user),
+):
+    content_type = (file.content_type or "").lower()
+    if not content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="이미지 파일만 업로드할 수 있습니다.")
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="빈 파일은 업로드할 수 없습니다.")
+    if len(content) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="프로필 이미지는 5MB 이하만 가능합니다.")
+    extension = Path(file.filename or "profile.jpg").suffix.lower()
+    if extension not in {".jpg", ".jpeg", ".png", ".webp"}:
+        extension = ".jpg"
+    s3_key = f"profiles/{user.id}/{secrets.token_hex(12)}{extension}"
+    path = _local_file_path(s3_key)
+    with open(path, "wb") as output:
+        output.write(content)
+    image_url = str(request.url_for("local_s3_get", s3_key=s3_key))
+    user.avatar_image_url = image_url
+    session.add(user)
+    # 구형 알림 중 작성자 ID가 비어 있는 행도 현재 사용자와 연결해 두어
+    # 알림창이 항상 최신 닉네임과 프로필 이미지를 조회할 수 있게 합니다.
+    current_name = user.nickname or _display_name_for_email(user.email)
+    for notification in session.exec(
+        select(CommunityNotification).where(
+            or_(
+                CommunityNotification.from_user_id == user.id,
+                CommunityNotification.from_user == current_name,
+            )
+        )
+    ).all():
+        notification.from_user_id = user.id
+        notification.from_user = current_name
+        notification.avatar_color = _avatar_for_user(user)
+        session.add(notification)
+    session.commit()
+    return {"avatar_image_url": image_url}
 
 @app.patch("/users/me/password")
 def patch_my_password(data: PasswordPatchRequest, session: Session = Depends(get_session), user: User = Depends(_current_user)):
@@ -1715,8 +2313,42 @@ def patch_my_settings(data: SettingsPatchRequest, session: Session = Depends(get
         settings.cooking_notification = data.cooking_notification
     if data.community_notification is not None:
         settings.community_notification = data.community_notification
+        if all(value is None for value in (
+            data.comment_notification,
+            data.reply_notification,
+            data.like_notification,
+            data.notice_notification,
+        )):
+            settings.comment_notification = data.community_notification
+            settings.reply_notification = data.community_notification
+            settings.like_notification = data.community_notification
+            settings.notice_notification = data.community_notification
+    if data.comment_notification is not None:
+        settings.comment_notification = data.comment_notification
+    if data.reply_notification is not None:
+        settings.reply_notification = data.reply_notification
+    if data.like_notification is not None:
+        settings.like_notification = data.like_notification
+    if data.notice_notification is not None:
+        settings.notice_notification = data.notice_notification
+    if any(value is not None for value in (
+        data.comment_notification,
+        data.reply_notification,
+        data.like_notification,
+        data.notice_notification,
+    )):
+        settings.community_notification = any((
+            settings.comment_notification,
+            settings.reply_notification,
+            settings.like_notification,
+            settings.notice_notification,
+        ))
     if data.marketing_notification is not None:
         settings.marketing_notification = data.marketing_notification
+    if data.auto_reconnect is not None:
+        settings.auto_reconnect = data.auto_reconnect
+    if data.slime_enabled is not None:
+        settings.slime_enabled = data.slime_enabled
     if data.language is not None:
         language = data.language.strip().lower()
         if language not in {"ko", "en"}:
@@ -1734,7 +2366,12 @@ def patch_my_settings(data: SettingsPatchRequest, session: Session = Depends(get
 def get_my_recipes(session: Session = Depends(get_session), user: User = Depends(_current_user)):
     rows = session.exec(select(RecipeRecord).where(RecipeRecord.owner_user_id == user.id)).all()
     rows = sorted(rows, key=lambda r: r.id or 0, reverse=True)
-    return {"recipes": [_recipe_card_payload(session, row) for row in rows]}
+    recipes = []
+    for row in rows:
+        payload = _recipe_card_payload(session, row)
+        payload["is_mine"] = True
+        recipes.append(payload)
+    return {"recipes": recipes}
 
 @app.patch("/users/me/recipes/{recipe_id}")
 def patch_my_recipe(
@@ -1758,6 +2395,7 @@ def patch_my_recipe(
     row.title = title
     row.description = data.description
     row.author = user.nickname or _display_name_for_email(user.email)
+    row.visibility = _normalize_recipe_visibility(data.visibility)
     row.instruction_steps_json = json.dumps(
         _instruction_steps_from_upload(row, data.steps), ensure_ascii=False
     )
@@ -1818,6 +2456,28 @@ def patch_my_recipe(
     return {"message": "recipe updated", "recipe": payload}
 
 
+@app.patch("/users/me/recipes/{recipe_id}/visibility")
+def patch_my_recipe_visibility(
+    recipe_id: int,
+    data: RecipeVisibilityRequest,
+    session: Session = Depends(get_session),
+    user: User = Depends(_current_user),
+):
+    row = session.get(RecipeRecord, recipe_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+    if row.owner_user_id != user.id:
+        raise HTTPException(status_code=403, detail="내 레시피만 공개 범위를 변경할 수 있습니다.")
+    row.visibility = _normalize_recipe_visibility(data.visibility)
+    row.updated_at = datetime.utcnow()
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    payload = _recipe_card_payload(session, row)
+    payload["is_mine"] = True
+    return {"message": "recipe visibility updated", "recipe": payload}
+
+
 @app.delete("/users/me/recipes/{recipe_id}")
 def delete_my_recipe(recipe_id: int, session: Session = Depends(get_session), user: User = Depends(_current_user)):
     row = session.get(RecipeRecord, recipe_id)
@@ -1839,6 +2499,13 @@ def get_my_saved_recipes(session: Session = Depends(get_session), user: User = D
     rows = sorted(rows, key=lambda r: r.id or 0, reverse=True)
     recipes = []
     for saved in rows:
+        linked_recipe = None
+        if saved.recipe_id:
+            linked_recipe = session.get(RecipeRecord, saved.recipe_id)
+        if linked_recipe is None and (saved.client_id or "").strip():
+            linked_recipe = _recipe_for_client_id(session, saved.client_id)
+        if linked_recipe is not None and not _can_view_recipe(linked_recipe, user):
+            continue
         payload = _saved_recipe_payload(session, saved)
         if payload is not None:
             recipes.append(payload)
@@ -1847,7 +2514,7 @@ def get_my_saved_recipes(session: Session = Depends(get_session), user: User = D
 @app.post("/users/me/saved-recipes")
 def save_my_recipe(data: SaveRecipeRequest, session: Session = Depends(get_session), user: User = Depends(_current_user)):
     recipe = session.get(RecipeRecord, data.recipe_id)
-    if not recipe:
+    if not recipe or not _can_view_recipe(recipe, user):
         raise HTTPException(status_code=404, detail="Recipe not found")
     exists = session.exec(
         select(SavedRecipe)
@@ -1887,6 +2554,8 @@ def save_my_recipe_by_client_id(data: SaveClientRecipeRequest, session: Session 
         .where(SavedRecipe.client_id == client_id)
     ).first()
     recipe = _recipe_for_client_id(session, client_id)
+    if recipe is not None and not _can_view_recipe(recipe, user):
+        raise HTTPException(status_code=404, detail="Recipe not found")
     if exists is None and recipe is not None and recipe.id is not None:
         # 이전 버전에서 recipe_id만 저장한 행을 동일한 행으로 승격합니다.
         exists = session.exec(
@@ -2098,38 +2767,6 @@ def delete_my_cooking_history(history_id: int, session: Session = Depends(get_se
     session.commit()
     return {"message": "history deleted", "history_id": history_id}
 
-@app.post("/users/me/cooking-histories/{history_id}/save-as-recipe")
-def save_history_as_recipe(history_id: int, session: Session = Depends(get_session), user: User = Depends(_current_user)):
-    history = session.get(CookingHistory, history_id)
-    if not history or history.user_id != user.id:
-        raise HTTPException(status_code=404, detail="Cooking history not found")
-    recipe = RecipeRecord(
-        owner_user_id=user.id,
-        title=f"{history.recipe_title} 복사본",
-        description="조리 이력에서 저장한 레시피입니다.",
-        author=user.nickname or _display_name_for_email(user.email),
-        is_personal=True,
-    )
-    session.add(recipe)
-    session.commit()
-    session.refresh(recipe)
-    try:
-        steps = json.loads(history.steps_json or "[]")
-    except Exception:
-        steps = []
-    if not steps:
-        steps = [{"temperature": history.max_temperature or 180, "time_offset": 0}]
-    for index, step in enumerate(steps, start=1):
-        session.add(RecipeStepRecord(
-            recipe_id=recipe.id,
-            temperature=float(step.get("temperature") or history.max_temperature or 180),
-            time_offset=float(step.get("time_offset") or step.get("timeOffset") or 0),
-            label=str(step.get("label") or f"Step {index}"),
-            sort_order=index,
-        ))
-    session.commit()
-    return {"recipe": _recipe_card_payload(session, recipe)}
-
 @app.get("/users/me/devices")
 def get_my_devices(session: Session = Depends(get_session), user: User = Depends(_current_user)):
     rows = session.exec(select(RegisteredDevice).where(RegisteredDevice.user_id == user.id)).all()
@@ -2233,6 +2870,7 @@ def unregister_device(data: DeviceVerifyRequest, session: Session = Depends(get_
 
 @app.get("/recipes")
 def get_recipe_catalog(session: Session = Depends(get_session)):
+    """Graphene Square 공식 레시피 목록입니다."""
     allowed_ids = {str(row["client_id"]) for row in APP_RECIPE_CATALOG}
     rows = session.exec(
         select(RecipeRecord).where(RecipeRecord.is_personal == False)
@@ -2240,6 +2878,88 @@ def get_recipe_catalog(session: Session = Depends(get_session)):
     rows = [row for row in rows if (row.client_id or "") in allowed_ids]
     rows = sorted(rows, key=lambda row: (row.catalog_order, row.id or 0))
     return {"recipes": [_recipe_payload(session, row) for row in rows]}
+
+
+@app.get("/recipes/feed")
+def get_recipe_feed(
+    query: Optional[str] = None,
+    session: Session = Depends(get_session),
+):
+    """앱 레시피 목록용 통합 API: 공식 레시피와 공개 사용자 레시피를 함께 반환합니다."""
+    allowed_ids = {str(row["client_id"]) for row in APP_RECIPE_CATALOG}
+    official_rows = session.exec(
+        select(RecipeRecord).where(RecipeRecord.is_personal == False)
+    ).all()
+    official_rows = [
+        row for row in official_rows if (row.client_id or "") in allowed_ids
+    ]
+    official_rows = sorted(
+        official_rows, key=lambda row: (row.catalog_order, row.id or 0)
+    )
+
+    public_rows = session.exec(
+        select(RecipeRecord)
+        .where(RecipeRecord.is_personal == True)
+        .where(RecipeRecord.visibility == "public")
+    ).all()
+    keyword = (query or "").strip().lower()
+    if keyword:
+        public_rows = [
+            row
+            for row in public_rows
+            if keyword in (row.title or "").lower()
+            or keyword in (row.description or "").lower()
+            or keyword in (row.author or "").lower()
+        ]
+        official_rows = [
+            row
+            for row in official_rows
+            if keyword in (row.title or "").lower()
+            or keyword in (row.description or "").lower()
+        ]
+    public_rows = sorted(
+        public_rows,
+        key=lambda row: (row.updated_at or row.created_at, row.id or 0),
+        reverse=True,
+    )
+    rows = [*official_rows, *public_rows]
+    return {"recipes": [_recipe_card_payload(session, row) for row in rows]}
+
+
+@app.get("/recipes/public")
+def get_public_user_recipes(
+    query: Optional[str] = None,
+    session: Session = Depends(get_session),
+):
+    """모든 사용자가 볼 수 있도록 공개한 사용자 레시피 목록입니다."""
+    rows = session.exec(
+        select(RecipeRecord)
+        .where(RecipeRecord.is_personal == True)
+        .where(RecipeRecord.visibility == "public")
+    ).all()
+    keyword = (query or "").strip().lower()
+    if keyword:
+        rows = [
+            row
+            for row in rows
+            if keyword in (row.title or "").lower()
+            or keyword in (row.description or "").lower()
+            or keyword in (row.author or "").lower()
+        ]
+    rows = sorted(rows, key=lambda row: (row.updated_at or row.created_at, row.id or 0), reverse=True)
+    return {"recipes": [_recipe_card_payload(session, row) for row in rows]}
+
+
+@app.get("/recipes/public/{recipe_id}")
+def get_public_user_recipe_detail(recipe_id: str, session: Session = Depends(get_session)):
+    row = _recipe_for_client_id(session, recipe_id)
+    if (
+        row is None
+        or not row.is_personal
+        or not _recipe_is_public(row)
+    ):
+        raise HTTPException(status_code=404, detail="Public recipe not found")
+    return {"recipe": _recipe_payload(session, row)}
 
 
 @app.get("/recipes/{client_id}")
@@ -2253,7 +2973,8 @@ def get_recipe_catalog_detail(client_id: str, session: Session = Depends(get_ses
     return {"recipe": _recipe_payload(session, row)}
 
 
-@app.post("/recipe/upload")
+@app.post("/users/me/recipes")
+@app.post("/recipe/upload", deprecated=True)
 def upload_recipe(data: UploadRecipeRequest, session: Session = Depends(get_session), user: User = Depends(_current_user)):
     if not data.steps:
         raise HTTPException(status_code=400, detail="steps required")
@@ -2265,6 +2986,7 @@ def upload_recipe(data: UploadRecipeRequest, session: Session = Depends(get_sess
         is_personal=True,
         is_gsq_suggested=False,
         is_official=False,
+        visibility=_normalize_recipe_visibility(data.visibility),
     )
     if not recipe.title:
         raise HTTPException(status_code=400, detail="title required")
@@ -2293,7 +3015,7 @@ def upload_recipe(data: UploadRecipeRequest, session: Session = Depends(get_sess
     session.commit()
     return {"message": "uploaded", "recipe": _recipe_card_payload(session, recipe)}
 
-@app.get("/recipe/personal_recipes/{amount}")
+@app.get("/recipe/personal_recipes/{amount}", deprecated=True)
 def get_personal_recipes(amount: int, session: Session = Depends(get_session), user: User = Depends(_current_user)):
     rows = session.exec(
         select(RecipeRecord)
@@ -2678,27 +3400,76 @@ def get_popular_posts(days: int = 3, session: Session = Depends(get_session), us
     posts = session.exec(select(CommunityPost).where(CommunityPost.deleted == False)).all()
     blocked = _blocked_author_sets(session, user)
     posts = [post for post in posts if not _author_is_blocked(post, blocked)]
-    windows = [days] if days in {3, 6, 9, 12} else [3, 6, 9, 12]
-    if days == 3:
-        windows = [3, 6, 9, 12]
-    for d in windows:
-        scored = [
-            post
-            for post in posts
-            if post.force_popular or _popularity_score(session, post, d) > 0
-        ]
-        scored.sort(
-            key=lambda post: (
-                1 if post.force_popular else 0,
-                _popularity_score(session, post, d),
-                post.likes,
-                post.id or 0,
-            ),
-            reverse=True,
-        )
-        if scored:
-            return {"days": d, "posts": [_post_payload(session, p, user, blocked) for p in scored]}
+
+    # 카드의 is_popular 값과 인기 목록 포함 기준을 동일하게 유지합니다.
+    # 인기 여부는 최근 3일 점수가 POPULAR_SCORE_THRESHOLD 이상인 경우이며,
+    # force_popular 게시글은 점수와 관계없이 포함합니다.
+    d = 3
+    scored = [post for post in posts if _is_popular(session, post, d)]
+    scored.sort(
+        key=lambda post: (
+            1 if post.force_popular else 0,
+            _popularity_score(session, post, d),
+            post.likes,
+            post.id or 0,
+        ),
+        reverse=True,
+    )
+    if scored:
+        return {"days": d, "posts": [_post_payload(session, p, user, blocked) for p in scored]}
     return {"days": 0, "posts": []}
+
+@app.get("/community/users/{user_id}")
+def get_community_author_profile(
+    user_id: int,
+    session: Session = Depends(get_session),
+    viewer: User = Depends(_current_user),
+):
+    author = session.get(User, user_id)
+    if author is None:
+        raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
+
+    blocked_ids, blocked_names = _blocked_author_sets(session, viewer)
+    author_name = author.nickname or _display_name_for_email(author.email)
+    if user_id in blocked_ids or author_name.strip().lower() in blocked_names:
+        raise HTTPException(status_code=404, detail="차단한 사용자입니다.")
+
+    posts = session.exec(
+        select(CommunityPost)
+        .where(CommunityPost.owner_user_id == user_id)
+        .where(CommunityPost.deleted == False)
+    ).all()
+    posts = sorted(posts, key=lambda row: (row.created_at, row.id or 0), reverse=True)
+
+    recipes = session.exec(
+        select(RecipeRecord)
+        .where(RecipeRecord.owner_user_id == user_id)
+        .where(RecipeRecord.visibility == "public")
+    ).all()
+    recipes = sorted(recipes, key=lambda row: (row.updated_at, row.id or 0), reverse=True)
+
+    return {
+        "profile": {
+            "user_id": author.id,
+            "nickname": author_name,
+            "avatar_color": _avatar_for_user(author),
+            "avatar_image_url": author.avatar_image_url,
+            "is_admin": _is_admin(author),
+            "posts": [_post_payload(session, row, viewer) for row in posts],
+            "public_recipes": [
+                {
+                    "id": _recipe_public_id(row),
+                    "title": row.title,
+                    "description": row.description or "",
+                    "author": author_name,
+                    "thumbnail_url": row.thumbnail_url,
+                    "created_at": _utc_iso(row.created_at),
+                }
+                for row in recipes
+            ],
+        }
+    }
+
 
 @app.get("/community/posts/{post_id}")
 def get_post(post_id: int, session: Session = Depends(get_session), user: User = Depends(_current_user)):
@@ -2744,7 +3515,9 @@ def update_post(post_id: int, data: PostPatch, session: Session = Depends(get_se
         post.image_url = data.image_url
     if data.tags is not None:
         post.tags = ",".join(data.tags)
-    post.updated_at = datetime.utcnow()
+    now = datetime.utcnow()
+    post.updated_at = now
+    post.content_updated_at = now
     session.add(post)
     session.commit()
     session.refresh(post)
@@ -2771,6 +3544,16 @@ def like_post(post_id: int, session: Session = Depends(get_session), user: User 
         post.likes += 1
         _inc_activity_like(post, 1)
         session.add(post)
+        _add_notification(
+            session,
+            target_user_id=post.owner_user_id,
+            target_username=post.username,
+            notification_type="like",
+            from_user=user,
+            post_title=post.title,
+            post_id=post.id or post_id,
+            context_text=post.title,
+        )
         session.commit()
         session.refresh(post)
     return {"is_liked": True, "like_count": post.likes, "post": _post_payload(session, post, user)}
@@ -2864,6 +3647,18 @@ def like_comment(comment_id: int, session: Session = Depends(get_session), user:
         session.add(CommentLike(comment_id=comment_id, username=viewer_key))
         comment.likes += 1
         session.add(comment)
+        post = session.get(CommunityPost, comment.post_id)
+        _add_notification(
+            session,
+            target_user_id=comment.owner_user_id,
+            target_username=comment.username,
+            notification_type="like",
+            from_user=user,
+            post_title=post.title if post else "댓글",
+            post_id=comment.post_id,
+            context_text=comment.content,
+            target_comment_id=comment.id,
+        )
         session.commit()
         session.refresh(comment)
     return {"is_liked": True, "like_count": comment.likes, "comment": _comment_payload(session, comment, user)}
@@ -2958,6 +3753,19 @@ def like_reply(reply_id: int, session: Session = Depends(get_session), user: Use
         session.add(ReplyLike(reply_id=reply_id, username=viewer_key))
         reply.likes += 1
         session.add(reply)
+        comment = session.get(CommunityComment, reply.comment_id)
+        post = session.get(CommunityPost, comment.post_id) if comment else None
+        _add_notification(
+            session,
+            target_user_id=reply.owner_user_id,
+            target_username=reply.username,
+            notification_type="like",
+            from_user=user,
+            post_title=post.title if post else "답글",
+            post_id=post.id if post and post.id is not None else 0,
+            context_text=reply.content,
+            target_reply_id=reply.id,
+        )
         session.commit()
         session.refresh(reply)
     return {"is_liked": True, "like_count": reply.likes, "reply": _reply_payload(session, reply, user)}
@@ -3042,6 +3850,120 @@ def admin_get_reports(
     return {"reports": [_report_payload(session, row) for row in reports], "summary": summary}
 
 
+def _delete_report_target(session: Session, report: CommunityReport) -> bool:
+    """Soft-delete the reported target and dependent community content."""
+    target_type = (report.target_type or "").strip().lower()
+    deleted_any = False
+
+    if target_type == "post":
+        post = session.get(CommunityPost, report.target_id)
+        if post is not None and not post.deleted:
+            post.deleted = True
+            post.updated_at = datetime.utcnow()
+            session.add(post)
+            deleted_any = True
+
+        comments = session.exec(
+            select(CommunityComment).where(CommunityComment.post_id == report.target_id)
+        ).all()
+        comment_ids = []
+        for comment in comments:
+            if comment.id is not None:
+                comment_ids.append(comment.id)
+            if not comment.deleted:
+                comment.deleted = True
+                comment.updated_at = datetime.utcnow()
+                session.add(comment)
+                deleted_any = True
+        if comment_ids:
+            replies = session.exec(select(CommunityReply)).all()
+            for reply in replies:
+                if reply.comment_id in comment_ids and not reply.deleted:
+                    reply.deleted = True
+                    reply.updated_at = datetime.utcnow()
+                    session.add(reply)
+                    deleted_any = True
+
+    elif target_type == "comment":
+        comment = session.get(CommunityComment, report.target_id)
+        if comment is not None and not comment.deleted:
+            comment.deleted = True
+            comment.updated_at = datetime.utcnow()
+            session.add(comment)
+            deleted_any = True
+        replies = session.exec(
+            select(CommunityReply).where(CommunityReply.comment_id == report.target_id)
+        ).all()
+        for reply in replies:
+            if not reply.deleted:
+                reply.deleted = True
+                reply.updated_at = datetime.utcnow()
+                session.add(reply)
+                deleted_any = True
+
+    elif target_type == "reply":
+        reply = session.get(CommunityReply, report.target_id)
+        if reply is not None and not reply.deleted:
+            reply.deleted = True
+            reply.updated_at = datetime.utcnow()
+            session.add(reply)
+            deleted_any = True
+    else:
+        raise HTTPException(status_code=400, detail="지원하지 않는 신고 대상입니다.")
+
+    return deleted_any
+
+
+def _apply_admin_report_action(
+    session: Session,
+    report: CommunityReport,
+    admin: User,
+    *,
+    status: str,
+    admin_note: str = "",
+    delete_content: bool = False,
+) -> dict:
+    if status not in {"pending", "resolved", "rejected"}:
+        raise HTTPException(status_code=400, detail="지원하지 않는 신고 상태입니다.")
+
+    content_deleted = False
+    if delete_content:
+        content_deleted = _delete_report_target(session, report)
+        status = "resolved"
+
+    now = datetime.utcnow()
+    report.status = status
+    report.admin_note = (admin_note or "").strip()
+    report.processed_by_user_id = admin.id if status != "pending" else None
+    report.processed_at = now if status != "pending" else None
+    session.add(report)
+
+    # 동일 콘텐츠에 여러 신고가 접수된 경우 콘텐츠 삭제 시 남은 미처리 신고도
+    # 함께 완료 처리해 관리 화면에 중복으로 남지 않게 합니다.
+    if delete_content:
+        related_reports = session.exec(
+            select(CommunityReport)
+            .where(CommunityReport.target_type == report.target_type)
+            .where(CommunityReport.target_id == report.target_id)
+        ).all()
+        for related in related_reports:
+            if related.id == report.id:
+                continue
+            if related.status == "pending":
+                related.status = "resolved"
+                related.admin_note = report.admin_note or "동일 콘텐츠 삭제로 함께 처리됨"
+                related.processed_by_user_id = admin.id
+                related.processed_at = now
+                session.add(related)
+
+    session.commit()
+    session.refresh(report)
+    return {
+        "report": _report_payload(session, report),
+        "content_deleted": content_deleted,
+    }
+
+
 @app.patch("/admin/community/reports/{report_id}")
 def admin_update_report(
     report_id: int,
@@ -3052,23 +3974,53 @@ def admin_update_report(
     report = session.get(CommunityReport, report_id)
     if not report:
         raise HTTPException(status_code=404, detail="신고 내역을 찾을 수 없습니다.")
-    if data.status not in {"pending", "resolved", "rejected"}:
-        raise HTTPException(status_code=400, detail="지원하지 않는 신고 상태입니다.")
-    report.status = data.status
-    report.admin_note = data.admin_note.strip()
-    report.processed_by_user_id = admin.id if data.status != "pending" else None
-    report.processed_at = datetime.utcnow() if data.status != "pending" else None
-    if data.delete_content:
-        model = {"post": CommunityPost, "comment": CommunityComment, "reply": CommunityReply}.get(report.target_type)
-        row = session.get(model, report.target_id) if model else None
-        if row is not None and hasattr(row, "deleted"):
-            row.deleted = True
-            session.add(row)
-    session.add(report)
-    session.commit()
-    session.refresh(report)
-    return {"report": _report_payload(session, report)}
+    return _apply_admin_report_action(
+        session,
+        report,
+        admin,
+        status=data.status,
+        admin_note=data.admin_note,
+        delete_content=data.delete_content,
+    )
 
+
+@app.post("/admin/community/reports/{report_id}/reject")
+def admin_reject_report(
+    report_id: int,
+    data: AdminReportActionRequest,
+    session: Session = Depends(get_session),
+    admin: User = Depends(_require_admin),
+):
+    report = session.get(CommunityReport, report_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="신고 내역을 찾을 수 없습니다.")
+    return _apply_admin_report_action(
+        session,
+        report,
+        admin,
+        status="rejected",
+        admin_note=data.admin_note,
+    )
+
+
+@app.post("/admin/community/reports/{report_id}/delete-content")
+def admin_delete_reported_content(
+    report_id: int,
+    data: AdminReportActionRequest,
+    session: Session = Depends(get_session),
+    admin: User = Depends(_require_admin),
+):
+    report = session.get(CommunityReport, report_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="신고 내역을 찾을 수 없습니다.")
+    return _apply_admin_report_action(
+        session,
+        report,
+        admin,
+        status="resolved",
+        admin_note=data.admin_note,
+        delete_content=True,
+    )
 
 def _notice_payload(notice: CommunityNotice) -> dict:
     return {
@@ -3136,6 +4088,20 @@ def admin_create_notice(
         updated_at=now,
     )
     session.add(notice)
+    session.flush()
+    for target_user in session.exec(select(User)).all():
+        if target_user.id == admin.id:
+            continue
+        _add_notification(
+            session,
+            target_user_id=target_user.id,
+            target_username=target_user.nickname or _display_name_for_email(target_user.email),
+            notification_type="notice",
+            from_user=admin,
+            post_title=notice.title,
+            notice_id=notice.id,
+            context_text=notice.summary or notice.content,
+        )
     session.commit()
     session.refresh(notice)
     return {"notice": _notice_payload(notice)}
@@ -3182,6 +4148,62 @@ def admin_delete_notice(
     return {"deleted": True, "notice_id": notice_id}
 
 
+@app.post("/push/devices")
+def register_push_device(
+    data: PushTokenRequest,
+    session: Session = Depends(get_session),
+    user: User = Depends(_current_user),
+):
+    token = data.token.strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="푸시 토큰이 비어 있습니다.")
+    platform = data.platform.strip().lower() or "android"
+    # 같은 FCM 토큰이 다른 계정에 남아 있으면 이전 계정에서는 비활성화합니다.
+    rows = session.exec(select(PushDeviceToken).where(PushDeviceToken.token == token)).all()
+    current = None
+    for row in rows:
+        if row.user_id == user.id:
+            current = row
+        elif row.active:
+            row.active = False
+            row.updated_at = datetime.utcnow()
+            session.add(row)
+    if current is None:
+        current = PushDeviceToken(
+            user_id=user.id,
+            token=token,
+            platform=platform,
+            active=True,
+        )
+    else:
+        current.platform = platform
+        current.active = True
+        current.updated_at = datetime.utcnow()
+    session.add(current)
+    session.commit()
+    return {"registered": True, "push_enabled": _init_firebase_admin()}
+
+
+@app.post("/push/devices/unregister")
+def unregister_push_device(
+    data: PushTokenRequest,
+    session: Session = Depends(get_session),
+    user: User = Depends(_current_user),
+):
+    token = data.token.strip()
+    rows = session.exec(
+        select(PushDeviceToken)
+        .where(PushDeviceToken.user_id == user.id)
+        .where(PushDeviceToken.token == token)
+    ).all()
+    for row in rows:
+        row.active = False
+        row.updated_at = datetime.utcnow()
+        session.add(row)
+    session.commit()
+    return {"unregistered": True}
+
+
 def _clean_notification_post_text(value: Optional[str]) -> str:
     """Remove legacy separator-only values such as `|`, `ㅣ`, or `｜`."""
     text = " ".join((value or "").split()).strip()
@@ -3200,18 +4222,26 @@ def _short_notification_context(value: Optional[str], limit: int = 60) -> str:
 
 
 def _notification_post_title(session: Session, notification: CommunityNotification) -> str:
-    """Return the current post title, falling back to a short content preview."""
-    post = session.get(CommunityPost, notification.post_id)
-    if post and not post.deleted:
-        title = _clean_notification_post_text(post.title)
-        if title:
-            return title
-        content = _short_notification_context(post.content, 42)
-        if content:
-            return content
+    """Return the current post or recipe title for notification display."""
+    if (notification.recipe_id or "").strip():
+        recipe = _recipe_for_client_id(session, notification.recipe_id)
+        if recipe is not None:
+            title = _clean_notification_post_text(recipe.title)
+            if title:
+                return title
+
+    if notification.post_id:
+        post = session.get(CommunityPost, notification.post_id)
+        if post and not post.deleted:
+            title = _clean_notification_post_text(post.title)
+            if title:
+                return title
+            content = _short_notification_context(post.content, 42)
+            if content:
+                return content
 
     stored = _clean_notification_post_text(notification.post_title)
-    return stored or "게시글"
+    return stored or ("레시피" if notification.recipe_id else "게시글")
 
 
 def _legacy_notification_interaction_text(
@@ -3277,6 +4307,20 @@ def _notification_context_text(session: Session, notification: CommunityNotifica
             if current_reply:
                 return current_reply
 
+    if notification.type == "recipe_comment" and notification.target_recipe_comment_id:
+        recipe_comment = session.get(RecipeComment, notification.target_recipe_comment_id)
+        if recipe_comment and not recipe_comment.deleted:
+            current_comment = _short_notification_context(recipe_comment.content)
+            if current_comment:
+                return current_comment
+
+    if notification.type == "recipe_review" and notification.target_review_id:
+        review = session.get(RecipeReview, notification.target_review_id)
+        if review and not review.deleted:
+            current_review = _short_notification_context(review.content)
+            if current_review:
+                return current_review
+
     legacy_interaction = _legacy_notification_interaction_text(session, notification)
     if legacy_interaction:
         return legacy_interaction
@@ -3288,16 +4332,68 @@ def _notification_context_text(session: Session, notification: CommunityNotifica
     return _notification_post_title(session, notification)
 
 
+def _notification_actor_user_id(
+    session: Session, notification: CommunityNotification
+) -> Optional[int]:
+    if notification.from_user_id is not None:
+        return notification.from_user_id
+    if notification.target_reply_id:
+        reply = session.get(CommunityReply, notification.target_reply_id)
+        if reply and reply.owner_user_id is not None:
+            return reply.owner_user_id
+    if notification.target_comment_id:
+        comment = session.get(CommunityComment, notification.target_comment_id)
+        if comment and comment.owner_user_id is not None:
+            return comment.owner_user_id
+    if notification.target_recipe_comment_id:
+        comment = session.get(RecipeComment, notification.target_recipe_comment_id)
+        if comment and comment.owner_user_id is not None:
+            return comment.owner_user_id
+    if notification.target_review_id:
+        review = session.get(RecipeReview, notification.target_review_id)
+        if review and review.owner_user_id is not None:
+            return review.owner_user_id
+    owner = session.exec(
+        select(User).where(User.nickname == notification.from_user)
+    ).first()
+    return owner.id if owner else None
+
+
+def _notification_actor_profile(
+    session: Session, notification: CommunityNotification
+) -> tuple[str, int, Optional[str]]:
+    actor_user_id = _notification_actor_user_id(session, notification)
+    if actor_user_id is not None and notification.from_user_id != actor_user_id:
+        notification.from_user_id = actor_user_id
+        session.add(notification)
+    return _live_author_profile(
+        session,
+        actor_user_id,
+        notification.from_user,
+        notification.avatar_color,
+    )
+
 def _notification_payload(session: Session, notification: CommunityNotification) -> dict:
+    author_name, author_color, author_image = _notification_actor_profile(
+        session, notification
+    )
     return {
         "id": notification.id,
         "target_user_id": notification.target_user_id,
+        "from_user_id": _notification_actor_user_id(session, notification),
         "type": notification.type,
-        "from_user": notification.from_user,
-        "avatar_color": notification.avatar_color,
+        "from_user": author_name,
+        "avatar_color": author_color,
+        "avatar_image_url": author_image,
         "post_title": _notification_post_title(session, notification),
         "context_text": _notification_context_text(session, notification),
         "post_id": notification.post_id,
+        "recipe_id": notification.recipe_id,
+        "notice_id": notification.notice_id,
+        "target_comment_id": notification.target_comment_id,
+        "target_reply_id": notification.target_reply_id,
+        "target_recipe_comment_id": notification.target_recipe_comment_id,
+        "target_review_id": notification.target_review_id,
         "time_ago": notification.time_ago,
         "created_at": _utc_iso(notification.created_at),
         "read": notification.read,
@@ -3319,7 +4415,8 @@ def get_notifications(session: Session = Depends(get_session), user: User = Depe
     rows = [
         row
         for row in rows
-        if (row.from_user or "").strip().lower() not in blocked_names
+        if _notification_actor_user_id(session, row) != user.id
+        and (row.from_user or "").strip().lower() not in blocked_names
     ]
     rows = sorted(rows, key=lambda n: n.id or 0, reverse=True)
     return {"notifications": [_notification_payload(session, n) for n in rows]}
@@ -3339,6 +4436,37 @@ def read_all_notifications(session: Session = Depends(get_session), user: User =
         session.add(row)
     session.commit()
     return {"message": "all read"}
+
+@app.patch("/community/notifications/read_target")
+def read_target_notifications(
+    data: NotificationTargetReadRequest,
+    session: Session = Depends(get_session),
+    user: User = Depends(_current_user),
+):
+    recipe_id = (data.recipe_id or "").strip()
+    if data.post_id is None and not recipe_id:
+        raise HTTPException(status_code=400, detail="post_id 또는 recipe_id가 필요합니다.")
+
+    my_name = user.nickname or _display_name_for_email(user.email)
+    rows = session.exec(
+        select(CommunityNotification).where(
+            or_(
+                CommunityNotification.target_user_id == user.id,
+                CommunityNotification.username == my_name,
+            )
+        )
+    ).all()
+    changed = 0
+    for row in rows:
+        matches_post = data.post_id is not None and row.post_id == data.post_id
+        matches_recipe = bool(recipe_id) and (row.recipe_id or "").strip() == recipe_id
+        if (matches_post or matches_recipe) and not row.read:
+            row.read = True
+            session.add(row)
+            changed += 1
+    session.commit()
+    return {"message": "target notifications read", "updated": changed}
+
 
 @app.patch("/community/notifications/{notification_id}/read")
 def read_notification(notification_id: int, session: Session = Depends(get_session), user: User = Depends(_current_user)):
@@ -3383,6 +4511,21 @@ def create_review(payload: dict, session: Session = Depends(get_session), user: 
         recipe_id=recipe_id,
     )
     session.add(review)
+    session.flush()
+    recipe = _recipe_for_client_id(session, recipe_id)
+    if recipe is not None and recipe.owner_user_id is not None:
+        owner = session.get(User, recipe.owner_user_id)
+        _add_notification(
+            session,
+            target_user_id=recipe.owner_user_id,
+            target_username=(owner.nickname if owner else recipe.author),
+            notification_type="recipe_review",
+            from_user=user,
+            post_title=recipe.title,
+            recipe_id=_recipe_public_id(recipe),
+            context_text=review.content,
+            target_review_id=review.id,
+        )
     session.commit()
     session.refresh(review)
     return {"review": _review_payload(session, review, user)}
@@ -3413,7 +4556,7 @@ def get_recipe_comments(
         .where(RecipeComment.deleted == False)
     ).all()
     rows = sorted(rows, key=lambda row: (row.created_at, row.id or 0), reverse=True)
-    return {"comments": [_recipe_comment_payload(row, user) for row in rows]}
+    return {"comments": [_recipe_comment_payload(session, row, user) for row in rows]}
 
 
 @app.post("/community/recipes/{recipe_id}/comments")
@@ -3437,9 +4580,24 @@ def create_recipe_comment(
         content=content,
     )
     session.add(row)
+    session.flush()
+    recipe = _recipe_for_client_id(session, recipe_id)
+    if recipe is not None and recipe.owner_user_id is not None:
+        owner = session.get(User, recipe.owner_user_id)
+        _add_notification(
+            session,
+            target_user_id=recipe.owner_user_id,
+            target_username=(owner.nickname if owner else recipe.author),
+            notification_type="recipe_comment",
+            from_user=user,
+            post_title=recipe.title,
+            recipe_id=_recipe_public_id(recipe),
+            context_text=row.content,
+            target_recipe_comment_id=row.id,
+        )
     session.commit()
     session.refresh(row)
-    return {"comment": _recipe_comment_payload(row, user)}
+    return {"comment": _recipe_comment_payload(session, row, user)}
 
 
 @app.patch("/community/recipe-comments/{comment_id}")
@@ -3464,7 +4622,7 @@ def update_recipe_comment(
     session.add(row)
     session.commit()
     session.refresh(row)
-    return {"comment": _recipe_comment_payload(row, user)}
+    return {"comment": _recipe_comment_payload(session, row, user)}
 
 
 @app.delete("/community/recipe-comments/{comment_id}")
@@ -3496,6 +4654,17 @@ def like_review(review_id: int, session: Session = Depends(get_session), user: U
         session.add(ReviewLike(review_id=review_id, username=viewer_key))
         review.likes += 1
         session.add(review)
+        _add_notification(
+            session,
+            target_user_id=review.owner_user_id,
+            target_username=review.username,
+            notification_type="like",
+            from_user=user,
+            post_title=review.recipe_title,
+            recipe_id=review.recipe_id,
+            context_text=review.content,
+            target_review_id=review.id,
+        )
         session.commit()
     return {"is_liked": True, "like_count": review.likes}
 
@@ -3841,6 +5010,7 @@ def _sync_app_recipe_catalog(session: Session) -> None:
         recipe.is_personal = False
         recipe.is_gsq_suggested = True
         recipe.is_official = bool(data.get("is_official", False))
+        recipe.visibility = "public"
         recipe.total_time_min = max(1, int(data.get("total_time_min") or 10))
         recipe.difficulty = str(data.get("difficulty") or "쉬움")
         recipe.servings = max(1, int(data.get("servings") or 1))
@@ -3890,6 +5060,7 @@ def _sync_default_recipe_catalog(session: Session):
             recipe.author = "Graphene Square"
             recipe.is_gsq_suggested = True
             recipe.is_official = True
+            recipe.visibility = "public"
             session.add(recipe)
             changed = True
     if changed:
@@ -3905,6 +5076,7 @@ def _sync_default_recipe_catalog(session: Session):
                 recipe.is_personal = False
                 recipe.is_gsq_suggested = True
                 recipe.is_official = official
+                recipe.visibility = "public"
                 recipe.thumbnail_url = thumbnail_url
                 session.add(recipe)
             continue
@@ -3915,6 +5087,7 @@ def _sync_default_recipe_catalog(session: Session):
             is_personal=False,
             is_gsq_suggested=True,
             is_official=official,
+            visibility="public",
             thumbnail_url=thumbnail_url,
         )
         session.add(recipe)
@@ -4197,21 +5370,38 @@ def _ensure_schema_columns():
     try:
         cursor = conn.cursor()
         upgrades = {
-            "communitypost": [("owner_user_id", "INTEGER"), ("bookmarks", "INTEGER DEFAULT 0"), ("admin_popularity_boost", "INTEGER DEFAULT 0"), ("force_popular", "BOOLEAN DEFAULT 0")],
-            "communitycomment": [("owner_user_id", "INTEGER")],
-            "communityreply": [("owner_user_id", "INTEGER")],
+            "user": [
+                ("avatar_color", "INTEGER DEFAULT 4294937666"),
+                ("avatar_image_url", "TEXT"),
+            ],
+            "communitypost": [("owner_user_id", "INTEGER"), ("updated_at", "TIMESTAMP"), ("content_updated_at", "TIMESTAMP"), ("bookmarks", "INTEGER DEFAULT 0"), ("admin_popularity_boost", "INTEGER DEFAULT 0"), ("force_popular", "BOOLEAN DEFAULT 0")],
+            "communitycomment": [("owner_user_id", "INTEGER"), ("updated_at", "TIMESTAMP")],
+            "communityreply": [("owner_user_id", "INTEGER"), ("updated_at", "TIMESTAMP")],
             "communitynotice": [("owner_user_id", "INTEGER"), ("updated_at", "TIMESTAMP")],
             "communityreport": [("status", "TEXT DEFAULT 'pending'"), ("admin_note", "TEXT DEFAULT ''"), ("processed_by_user_id", "INTEGER"), ("processed_at", "TIMESTAMP")],
             "communitynotification": [
                 ("target_user_id", "INTEGER"),
+                ("from_user_id", "INTEGER"),
                 ("context_text", "TEXT DEFAULT ''"),
                 ("target_comment_id", "INTEGER"),
                 ("target_reply_id", "INTEGER"),
+                ("recipe_id", "TEXT DEFAULT ''"),
+                ("target_recipe_comment_id", "INTEGER"),
+                ("target_review_id", "INTEGER"),
+                ("notice_id", "INTEGER"),
             ],
             "recipereview": [
                 ("owner_user_id", "INTEGER"),
                 ("deleted", "BOOLEAN DEFAULT 0"),
                 ("updated_at", "TIMESTAMP"),
+            ],
+            "usersettings": [
+                ("auto_reconnect", "BOOLEAN DEFAULT 1"),
+                ("slime_enabled", "BOOLEAN DEFAULT 1"),
+                ("comment_notification", "BOOLEAN DEFAULT 1"),
+                ("reply_notification", "BOOLEAN DEFAULT 1"),
+                ("like_notification", "BOOLEAN DEFAULT 1"),
+                ("notice_notification", "BOOLEAN DEFAULT 1"),
             ],
             "registereddevice": [
                 ("alias", "TEXT DEFAULT ''"),
@@ -4241,6 +5431,7 @@ def _ensure_schema_columns():
                 ("difficulty", "TEXT DEFAULT '쉬움'"),
                 ("servings", "INTEGER DEFAULT 1"),
                 ("compatibility_type", "TEXT DEFAULT 'fullAuto'"),
+                ("visibility", "TEXT DEFAULT 'private'"),
                 ("catalog_order", "INTEGER DEFAULT 0"),
                 ("ingredients_json", "TEXT DEFAULT '[]'"),
                 ("instruction_steps_json", "TEXT DEFAULT '[]'"),
@@ -4255,6 +5446,30 @@ def _ensure_schema_columns():
             for name, type_name in columns:
                 if name not in existing_columns:
                     cursor.execute(f"ALTER TABLE {table} ADD COLUMN {name} {type_name}")
+                    if table == "usersettings" and name in {
+                        "comment_notification",
+                        "reply_notification",
+                        "like_notification",
+                        "notice_notification",
+                    }:
+                        cursor.execute(
+                            f"UPDATE usersettings SET {name} = COALESCE(community_notification, 1)"
+                        )
+        existing_tables = {row[0] for row in cursor.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+        for table in ("communitypost", "communitycomment", "communityreply", "communitynotice", "recipereview"):
+            if table in existing_tables:
+                columns = {row[1] for row in cursor.execute(f"PRAGMA table_info({table})").fetchall()}
+                if "updated_at" in columns and "created_at" in columns:
+                    cursor.execute(
+                        f"UPDATE {table} SET updated_at = created_at WHERE updated_at IS NULL"
+                    )
+        if "recipes" in existing_tables:
+            # 기존 공식 레시피는 공개, 기존 사용자 레시피는 안전하게 비공개로 유지합니다.
+            cursor.execute("UPDATE recipes SET visibility = 'public' WHERE is_personal = 0")
+            cursor.execute(
+                "UPDATE recipes SET visibility = 'private' "
+                "WHERE is_personal = 1 AND (visibility IS NULL OR TRIM(visibility) = '' OR visibility NOT IN ('public', 'private'))"
+            )
         conn.commit()
     finally:
         conn.close()

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../../../core/widgets/app_toast.dart';
 import '../../device/provider/device_provider.dart';
 import '../../recipe/data/models/cooker_step.dart';
 import '../../recipe/data/models/recipe.dart';
@@ -413,11 +414,6 @@ class _CookingStepPage extends StatelessWidget {
           if (complete)
             const SizedBox.shrink()
           else if (step != null) ...[
-            _ValueRow(
-              label: '목표 온도',
-              value:
-                  '${current ? session.state.targetTemperature : step.temperature}°C',
-            ),
             if (current)
               _CookerSettingsButton(
                 session: session,
@@ -427,6 +423,11 @@ class _CookingStepPage extends StatelessWidget {
                   90,
                 ),
               ),
+            _ValueRow(
+              label: '목표 온도',
+              value:
+                  '${current ? session.state.targetTemperature : step.temperature}°C',
+            ),
             _ValueRow(
               label: '조리 시간',
               value: current
@@ -490,84 +491,155 @@ class _CompleteView extends StatelessWidget {
   final CookingSessionProvider session;
 
   @override
-  Widget build(BuildContext context) => Column(
-    mainAxisAlignment: MainAxisAlignment.center,
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [
-      const Icon(Icons.check_circle, color: _orange, size: 74),
-      const SizedBox(height: 18),
-      Text(
-        recipe.title,
-        textAlign: TextAlign.center,
-        style: const TextStyle(
-          color: _ink,
-          fontSize: 24,
-          fontWeight: FontWeight.w900,
+  Widget build(BuildContext context) => SingleChildScrollView(
+    padding: const EdgeInsets.only(bottom: 8),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Icon(Icons.check_circle, color: _orange, size: 74),
+        const SizedBox(height: 18),
+        Text(
+          recipe.title,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: _ink,
+            fontSize: 24,
+            fontWeight: FontWeight.w900,
+          ),
         ),
-      ),
-      const SizedBox(height: 8),
-      const Text(
-        '조리가 완료되었습니다.',
-        textAlign: TextAlign.center,
-        style: TextStyle(color: _sub),
-      ),
-      const SizedBox(height: 22),
-      Row(
-        children: [
-          Expanded(
-            child: _CompleteStat(
-              label: '조리 시간',
-              value: '${recipe.totalTimeMin}분',
+        const SizedBox(height: 8),
+        const Text(
+          '조리가 완료되었습니다.',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: _sub),
+        ),
+        const SizedBox(height: 22),
+        Row(
+          children: [
+            Expanded(
+              child: _CompleteStat(
+                label: '조리 시간',
+                value: '${recipe.totalTimeMin}분',
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _CompleteStat(
+                label: '쿠커 단계',
+                value: '${recipe.cookerSteps.length}개',
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 18),
+        const _CookerFinishInstruction(),
+        const SizedBox(height: 18),
+        OutlinedButton.icon(
+          onPressed: () async {
+            final params = <String, String>{
+              'write': '1',
+              'recipeId': recipe.id,
+              'recipeTitle': recipe.title,
+              'rating': '5',
+              if ((recipe.thumbnailUrl ?? '').trim().isNotEmpty)
+                'recipeImage': recipe.thumbnailUrl!.trim(),
+            };
+            final created = await context.push<bool>(
+              Uri(path: '/community', queryParameters: params).toString(),
+            );
+            if (!context.mounted || created != true) return;
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(const SnackBar(content: Text('후기가 등록되었습니다.')));
+          },
+          icon: const Icon(Icons.rate_review_outlined),
+          label: const Text('후기 작성'),
+        ),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          onPressed: () => context.push('/community'),
+          icon: const Icon(Icons.ios_share),
+          label: const Text('커뮤니티에 공유'),
+        ),
+        const SizedBox(height: 8),
+        FilledButton.icon(
+          onPressed: () async {
+            await session.finishSession();
+            if (context.mounted) context.go('/home');
+          },
+          style: _primaryStyle,
+          icon: const Icon(Icons.home_outlined),
+          label: const Text('홈으로 돌아가기'),
+        ),
+      ],
+    ),
+  );
+}
+
+class _CookerFinishInstruction extends StatelessWidget {
+  const _CookerFinishInstruction();
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      color: _orangeSoft,
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: const Color(0xFFFED7AA)),
+    ),
+    child: Row(
+      children: [
+        Container(
+          width: 48,
+          height: 48,
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            shape: BoxShape.circle,
+          ),
+          child: const Center(
+            child: SizedBox(
+              width: 30,
+              height: 24,
+              child: Stack(
+                children: [
+                  Positioned(
+                    left: 0,
+                    top: 3,
+                    child: Icon(Icons.pause_rounded, color: _orange, size: 18),
+                  ),
+                  Positioned(
+                    left: 10,
+                    top: 1,
+                    child: Icon(
+                      Icons.play_arrow_rounded,
+                      color: _orange,
+                      size: 22,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _CompleteStat(
-              label: '쿠커 단계',
-              value: '${recipe.cookerSteps.length}개',
-            ),
+        ),
+        const SizedBox(width: 12),
+        const Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '쿠커의 조리 종료 버튼을 눌러주세요',
+                style: TextStyle(color: _ink, fontWeight: FontWeight.w800),
+              ),
+              SizedBox(height: 4),
+              Text(
+                '기기 맨 오른쪽의 정지/시작 버튼을 누르면 완료 상태가 해제됩니다.',
+                style: TextStyle(color: _sub, fontSize: 12, height: 1.45),
+              ),
+            ],
           ),
-        ],
-      ),
-      const SizedBox(height: 18),
-      OutlinedButton.icon(
-        onPressed: () async {
-          final params = <String, String>{
-            'write': '1',
-            'recipeId': recipe.id,
-            'recipeTitle': recipe.title,
-            'rating': '5',
-            if ((recipe.thumbnailUrl ?? '').trim().isNotEmpty)
-              'recipeImage': recipe.thumbnailUrl!.trim(),
-          };
-          final created = await context.push<bool>(
-            Uri(path: '/community', queryParameters: params).toString(),
-          );
-          if (!context.mounted || created != true) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('후기가 등록되었습니다.')),
-          );
-        },
-        icon: const Icon(Icons.rate_review_outlined),
-        label: const Text('후기 작성'),
-      ),
-      const SizedBox(height: 8),
-      OutlinedButton.icon(
-        onPressed: () => context.push('/community'),
-        icon: const Icon(Icons.ios_share),
-        label: const Text('커뮤니티에 공유'),
-      ),
-      const SizedBox(height: 8),
-      FilledButton.icon(
-        onPressed: () async {
-          await session.finishSession();
-          if (context.mounted) context.go('/home');
-        },
-        style: _primaryStyle,
-        icon: const Icon(Icons.home_outlined),
-        label: const Text('홈으로 돌아가기'),
-      ),
-    ],
+        ),
+      ],
+    ),
   );
 }
 
@@ -655,7 +727,7 @@ class _RunningControls extends StatelessWidget {
       Expanded(
         child: FilledButton.icon(
           onPressed: session.isPaused
-              ? session.resumeCooking
+              ? () => _resumeCooking(context, session)
               : session.pauseCooking,
           style: FilledButton.styleFrom(
             backgroundColor: _orangeSoft,
@@ -678,6 +750,19 @@ class _RunningControls extends StatelessWidget {
   );
 }
 
+Future<void> _resumeCooking(
+  BuildContext context,
+  CookingSessionProvider session,
+) async {
+  final roundedMinutes = await session.resumeCooking();
+  if (!context.mounted || roundedMinutes == null) return;
+  showAppToast(
+    context,
+    '30초 기준으로 반올림해 $roundedMinutes분으로 재개했어요.',
+    success: true,
+  );
+}
+
 class _CookerSettingsButton extends StatelessWidget {
   const _CookerSettingsButton({
     required this.session,
@@ -690,19 +775,21 @@ class _CookerSettingsButton extends StatelessWidget {
   final int? minutes;
 
   @override
-  Widget build(BuildContext context) => Align(
-    alignment: Alignment.centerRight,
-    child: TextButton.icon(
-      onPressed: session.isPaused
-          ? null
-          : () => _showCookerSettingsDialog(
-              context,
-              session,
-              temperature,
-              minutes,
-            ),
-      icon: const Icon(Icons.tune, size: 18),
-      label: Text(minutes == null ? '온도 변경' : '온도/시간 변경'),
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 4),
+    child: Align(
+      alignment: Alignment.centerRight,
+      child: TextButton.icon(
+        onPressed: () =>
+            _showCookerSettingsDialog(context, session, temperature, minutes),
+        style: TextButton.styleFrom(
+          foregroundColor: _orange,
+          padding: EdgeInsets.zero,
+          minimumSize: Size.zero,
+        ),
+        icon: const Icon(Icons.tune_rounded, size: 18),
+        label: Text(minutes == null ? '온도 변경' : '온도/시간 변경'),
+      ),
     ),
   );
 }
@@ -748,6 +835,15 @@ Future<void> _showCookerSettingsDialog(
             ),
             if (currentMinutes != null) ...[
               const SizedBox(height: 12),
+              const Text(
+                '조리 시간 (1분 단위)',
+                style: TextStyle(
+                  color: _sub,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 4),
               Text(
                 '${minutes.round()}분',
                 style: const TextStyle(

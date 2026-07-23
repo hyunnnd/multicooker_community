@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 
 import '../../recipe/data/recipe_identity.dart';
+import '../../settings/data/settings_models.dart';
 import 'profile_models.dart';
 
 class ProfileRepository {
@@ -15,10 +16,30 @@ class ProfileRepository {
     );
   }
 
-  Future<ProfileSummary> updateNickname(String nickname) async {
+  Future<ProfileSummary> updateNickname(String nickname) =>
+      updateProfile(nickname: nickname);
+
+  Future<ProfileSummary> updateProfile({
+    required String nickname,
+    String? imagePath,
+  }) async {
+    String? avatarImageUrl;
+    if (imagePath != null && imagePath.isNotEmpty) {
+      final fileName = imagePath.split(RegExp(r'[\\/]')).last;
+      final upload = await _localDio.post<Map<String, dynamic>>(
+        '/users/me/profile-image',
+        data: FormData.fromMap({
+          'file': await MultipartFile.fromFile(imagePath, filename: fileName),
+        }),
+      );
+      avatarImageUrl = upload.data?['avatar_image_url'] as String?;
+    }
     final response = await _localDio.patch<Map<String, dynamic>>(
       '/users/me',
-      data: {'nickname': nickname},
+      data: {
+        'nickname': nickname,
+        if (avatarImageUrl != null) 'avatar_image_url': avatarImageUrl,
+      },
     );
     return ProfileSummary.fromJson(
       Map<String, dynamic>.from(response.data as Map),
@@ -199,15 +220,32 @@ class ProfileRepository {
     );
   }
 
-  /// 조리 이력을 현재 로그인 사용자의 개인 레시피로 등록합니다.
-  Future<void> saveHistoryAsRecipe(int historyId) async {
+  /// 조리 이력의 원본 레시피 또는 조리 설정 스냅샷을
+  /// '저장한 레시피' 목록에 추가합니다.
+  ///
+  /// 개인 레시피를 새로 생성하지 않으며, 같은 이력은 history-{id}를
+  /// 안정적인 client_id로 사용해 중복 저장되지 않습니다.
+  Future<void> saveHistoryToSavedRecipes(int historyId) async {
     final historyResponse = await _localDio.get<Map<String, dynamic>>(
       '/users/me/cooking-histories/$historyId',
     );
     final history = Map<String, dynamic>.from(
       historyResponse.data?['history'] as Map? ?? const {},
     );
-    final title = '${(history['recipe_title'] ?? '직접 조리').toString()} 복사본';
+
+    final clientRecipeId =
+        (history['client_recipe_id'] ?? '').toString().trim();
+    final numericRecipeId = (history['recipe_id'] ?? '').toString().trim();
+    final hasLinkedRecipe = clientRecipeId.isNotEmpty ||
+        (numericRecipeId.isNotEmpty && numericRecipeId != '0');
+    final clientId = clientRecipeId.isNotEmpty
+        ? clientRecipeId
+        : (numericRecipeId.isNotEmpty && numericRecipeId != '0'
+            ? numericRecipeId
+            : 'history-$historyId');
+
+    final rawTitle = (history['recipe_title'] ?? '직접 조리').toString().trim();
+    final title = rawTitle.isEmpty ? '직접 조리' : rawTitle;
     final rawSteps = history['steps'] as List<dynamic>? ?? const [];
     final steps = rawSteps
         .whereType<Map>()
@@ -222,11 +260,17 @@ class ProfileRepository {
               ),
             ),
             'time_offset': numberAsDouble(
-              step['time_offset'] ?? step['timeOffset'] ?? step['seconds'],
+              step['time_offset'] ??
+                  step['timeOffset'] ??
+                  step['seconds'] ??
+                  step['duration_seconds'],
             ),
+            if ((step['label'] ?? '').toString().trim().isNotEmpty)
+              'label': step['label'].toString().trim(),
           };
         })
         .toList(growable: true);
+
     if (steps.isEmpty) {
       steps.add({
         'temperature': numberAsDouble(
@@ -238,18 +282,37 @@ class ProfileRepository {
               fallback: 10,
             ) *
             60,
+        'label': '조리',
       });
     }
 
     await _localDio.post<Map<String, dynamic>>(
-      '/recipe/upload',
+      '/users/me/saved-recipes/by-client-id',
       data: {
+        'client_id': clientId,
         'title': title,
-        'description': '조리 이력에서 저장한 레시피입니다.',
+        'description': hasLinkedRecipe
+            ? '조리 이력에서 다시 저장한 레시피입니다.'
+            : '조리 이력에서 저장한 온도·시간 설정입니다.',
+        'author': '내 조리 이력',
+        'is_official': false,
+        'is_personal': false,
+        'total_time_min': numberAsInt(
+          history['total_time_min'],
+          fallback: 10,
+        ),
+        'max_temperature': numberAsInt(
+          history['max_temperature'],
+          fallback: 180,
+        ),
         'steps': steps,
       },
     );
   }
+
+  @Deprecated('saveHistoryToSavedRecipes를 사용하십시오.')
+  Future<void> saveHistoryAsRecipe(int historyId) =>
+      saveHistoryToSavedRecipes(historyId);
 
   Future<List<RegisteredDeviceItem>> fetchDevices() async {
     final response = await _localDio.get<Map<String, dynamic>>(

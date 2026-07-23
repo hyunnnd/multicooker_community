@@ -4,6 +4,7 @@ class ProfileSummary {
     required this.email,
     required this.nickname,
     required this.avatarColor,
+    this.avatarImageUrl,
     required this.recipeCount,
     required this.reviewCount,
     required this.commentCount,
@@ -17,6 +18,7 @@ class ProfileSummary {
   final String email;
   final String nickname;
   final int avatarColor;
+  final String? avatarImageUrl;
   final int recipeCount;
   final int reviewCount;
   final int commentCount;
@@ -30,6 +32,7 @@ class ProfileSummary {
         email: _asString(json['email']),
         nickname: _asString(json['nickname'], fallback: 'GrapheneUser'),
         avatarColor: _asInt(json['avatar_color'], fallback: 0xFFFF8C42),
+        avatarImageUrl: _nullableString(json['avatar_image_url']),
         recipeCount: _asInt(json['recipe_count']),
         reviewCount: _asInt(json['review_count']),
         commentCount: _asInt(json['comment_count']),
@@ -143,6 +146,25 @@ class MyCommentItem {
 
   bool get isReply => type == 'reply';
 
+  String get displayTime {
+    final raw = createdAt;
+    final normalized = raw == null ||
+            raw.isEmpty ||
+            raw.endsWith('Z') ||
+            RegExp(r'[+-]\d{2}:?\d{2}$').hasMatch(raw)
+        ? raw
+        : '${raw}Z';
+    final parsed = normalized == null ? null : DateTime.tryParse(normalized);
+    if (parsed == null) return timeAgo.isEmpty ? '-' : timeAgo;
+    final local = parsed.toLocal();
+    final difference = DateTime.now().difference(local);
+    if (difference.isNegative || difference.inSeconds < 60) return '방금 전';
+    if (difference.inMinutes < 60) return '${difference.inMinutes}분 전';
+    if (difference.inHours < 24) return '${difference.inHours}시간 전';
+    if (difference.inDays < 7) return '${difference.inDays}일 전';
+    return '${local.year}.${local.month.toString().padLeft(2, '0')}.${local.day.toString().padLeft(2, '0')}';
+  }
+
   factory MyCommentItem.fromJson(Map<String, dynamic> json) => MyCommentItem(
         id: _asInt(json['id']),
         type: _asString(json['type'], fallback: 'comment'),
@@ -201,53 +223,6 @@ class CookingHistoryItem {
             .whereType<Map>()
             .map((item) => Map<String, dynamic>.from(item))
             .toList(growable: false),
-      );
-}
-
-class ProfileSettings {
-  const ProfileSettings({
-    required this.cookingNotification,
-    required this.communityNotification,
-    required this.marketingNotification,
-    required this.language,
-    required this.tutorialCompleted,
-  });
-
-  final bool cookingNotification;
-  final bool communityNotification;
-  final bool marketingNotification;
-  final String language;
-  final bool tutorialCompleted;
-
-  factory ProfileSettings.fromJson(Map<String, dynamic> json) => ProfileSettings(
-        cookingNotification: _asBool(json['cooking_notification'], fallback: true),
-        communityNotification: _asBool(json['community_notification'], fallback: true),
-        marketingNotification: _asBool(json['marketing_notification']),
-        language: _asString(json['language'], fallback: 'ko'),
-        tutorialCompleted: _asBool(json['tutorial_completed']),
-      );
-
-  Map<String, dynamic> toJson() => {
-        'cooking_notification': cookingNotification,
-        'community_notification': communityNotification,
-        'marketing_notification': marketingNotification,
-        'language': language,
-        'tutorial_completed': tutorialCompleted,
-      };
-
-  ProfileSettings copyWith({
-    bool? cookingNotification,
-    bool? communityNotification,
-    bool? marketingNotification,
-    String? language,
-    bool? tutorialCompleted,
-  }) =>
-      ProfileSettings(
-        cookingNotification: cookingNotification ?? this.cookingNotification,
-        communityNotification: communityNotification ?? this.communityNotification,
-        marketingNotification: marketingNotification ?? this.marketingNotification,
-        language: language ?? this.language,
-        tutorialCompleted: tutorialCompleted ?? this.tutorialCompleted,
       );
 }
 

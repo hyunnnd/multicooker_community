@@ -6,128 +6,240 @@ import '../../../core/widgets/main_navigation.dart';
 import '../data/ai_recommend_result.dart';
 import '../provider/ai_recommend_provider.dart';
 
-const _blue = Color(0xFF2F80ED);
-const _blueSoft = Color(0xFFEAF2FF);
-const _ink = Color(0xFF292929);
-const _sub = Color(0xFF77736C);
-const _border = Color(0xFFE8E2D7);
+const _orange = Color(0xFFF97316);
+const _orangeSoft = Color(0xFFFFF1E6);
+const _ink = Color(0xFF111827);
+const _sub = Color(0xFF6B7280);
+const _border = Color(0xFFE5E7EB);
+const _background = Color(0xFFF8FAFC);
 
 class AiRecipeRecommendationScreen extends StatelessWidget {
   const AiRecipeRecommendationScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final ai = context.watch<AiRecommendProvider>();
-    final result = ai.result;
+    final result = context.watch<AiRecommendProvider>().result;
     return Scaffold(
-      appBar: AppBar(
-        leading: const AppBackButton(),
-        title: const Text('AI 추천 결과'),
-      ),
+      backgroundColor: _background,
       bottomNavigationBar: const MainNavigationBar(currentIndex: 0),
-      body: result == null
-          ? Center(
-              child: FilledButton.icon(
-                onPressed: () => context.go('/ai-scan'),
-                icon: const Icon(Icons.camera_alt_outlined),
-                label: const Text('식재료 사진 선택'),
-              ),
-            )
-          : ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                const Text(
-                  '인식한 식재료',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
-                ),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: result.ingredients
-                      .map(
-                        (item) => Chip(
-                          avatar: const Icon(
-                            Icons.auto_awesome,
-                            size: 16,
-                            color: _blue,
-                          ),
-                          label: Text(
-                            '${item.name} ${(item.confidence * 100).round()}%',
-                          ),
-                          backgroundColor: _blueSoft,
-                          side: const BorderSide(color: _border),
+      body: SafeArea(
+        child: Column(
+          children: [
+            const _RecommendationHeader(),
+            Expanded(
+              child: result == null
+                  ? const _EmptyResult()
+                  : ListView(
+                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+                      children: [
+                        _ResultSummary(
+                          ingredientCount: result.ingredients.length,
                         ),
-                      )
-                      .toList(growable: false),
-                ),
-                if (ai.lastUploadInfo != null) ...[
-                  const SizedBox(height: 18),
-                  _UploadDebugBox(info: ai.lastUploadInfo!),
-                ],
-                const SizedBox(height: 24),
-                const Text(
-                  '추천 레시피',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
-                ),
-                const SizedBox(height: 10),
-                for (final recipe in result.recipes) ...[
-                  _RecipeResultCard(recipe: recipe),
-                  const SizedBox(height: 12),
-                ],
-              ],
+                        const SizedBox(height: 22),
+                        const Text(
+                          '인식한 식재료',
+                          style: TextStyle(
+                            color: _ink,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: result.ingredients
+                              .map(
+                                (item) => _IngredientChip(
+                                  name: item.name,
+                                  confidence: item.confidence,
+                                ),
+                              )
+                              .toList(growable: false),
+                        ),
+                        const SizedBox(height: 24),
+                        Row(
+                          children: [
+                            const Text(
+                              '추천 레시피',
+                              style: TextStyle(
+                                color: _ink,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              '${result.recipes.length}개',
+                              style: const TextStyle(
+                                color: _sub,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        for (final recipe in result.recipes) ...[
+                          _RecipeResultCard(recipe: recipe),
+                          const SizedBox(height: 10),
+                        ],
+                      ],
+                    ),
             ),
+          ],
+        ),
+      ),
     );
   }
 }
 
-class _UploadDebugBox extends StatelessWidget {
-  const _UploadDebugBox({required this.info});
-
-  final Map<String, dynamic> info;
+class _RecommendationHeader extends StatelessWidget {
+  const _RecommendationHeader();
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(12),
-    decoration: BoxDecoration(
-      color: _blueSoft,
-      borderRadius: BorderRadius.circular(8),
-      border: Border.all(color: _border),
+    width: double.infinity,
+    padding: const EdgeInsets.fromLTRB(12, 8, 20, 8),
+    decoration: const BoxDecoration(
+      color: Colors.white,
+      border: Border(bottom: BorderSide(color: Color(0xFFF3F4F6))),
     ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    child: Row(
       children: [
-        const Text(
-          '디버그: S3 업로드 정보',
-          style: TextStyle(fontWeight: FontWeight.w900, color: _ink),
+        IconButton(
+          onPressed: () => context.pop(),
+          icon: const Icon(Icons.arrow_back_rounded, color: _ink),
+          tooltip: '뒤로가기',
         ),
-        const SizedBox(height: 8),
-        _DebugLine(label: 'PUT URL', value: info['upload_url']),
-        _DebugLine(label: 'S3 Key', value: info['s3_key']),
-        _DebugLine(label: 'Image URL', value: info['image_url']),
+        const SizedBox(width: 4),
+        const Text(
+          'AI 추천 결과',
+          style: TextStyle(
+            color: _ink,
+            fontSize: 18,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
       ],
     ),
   );
 }
 
-class _DebugLine extends StatelessWidget {
-  const _DebugLine({required this.label, required this.value});
-
-  final String label;
-  final Object? value;
+class _EmptyResult extends StatelessWidget {
+  const _EmptyResult();
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(top: 6),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+  Widget build(BuildContext context) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 64,
+            height: 64,
+            decoration: BoxDecoration(
+              color: _orangeSoft,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: const Icon(Icons.auto_awesome, color: _orange),
+          ),
+          const SizedBox(height: 14),
+          const Text(
+            '추천 결과가 없어요',
+            style: TextStyle(
+              color: _ink,
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            '식재료를 촬영하면 맞춤 레시피를 추천해 드릴게요.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: _sub, fontSize: 13),
+          ),
+          const SizedBox(height: 18),
+          FilledButton.icon(
+            onPressed: () => context.go('/ai-scan'),
+            style: FilledButton.styleFrom(backgroundColor: _orange),
+            icon: const Icon(Icons.camera_alt_outlined),
+            label: const Text('식재료 촬영하기'),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _ResultSummary extends StatelessWidget {
+  const _ResultSummary({required this.ingredientCount});
+
+  final int ingredientCount;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(color: _border),
+    ),
+    child: Row(
       children: [
-        Text(label, style: const TextStyle(color: _sub, fontSize: 12)),
-        SelectableText(
-          value?.toString() ?? '-',
-          style: const TextStyle(color: _ink, fontSize: 12),
+        Container(
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            color: _orangeSoft,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: const Icon(Icons.auto_awesome, color: _orange),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '식재료 분석 완료',
+                style: TextStyle(color: _ink, fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                '$ingredientCount개의 식재료로 추천을 준비했어요.',
+                style: const TextStyle(color: _sub, fontSize: 13),
+              ),
+            ],
+          ),
         ),
       ],
+    ),
+  );
+}
+
+class _IngredientChip extends StatelessWidget {
+  const _IngredientChip({required this.name, required this.confidence});
+
+  final String name;
+  final double confidence;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+    decoration: BoxDecoration(
+      color: const Color(0xFFFFF7ED),
+      borderRadius: BorderRadius.circular(999),
+      border: Border.all(color: const Color(0xFFFED7AA)),
+    ),
+    child: Text(
+      '$name ${(confidence * 100).round()}%',
+      style: const TextStyle(
+        color: Color(0xFFC2410C),
+        fontSize: 12,
+        fontWeight: FontWeight.w700,
+      ),
     ),
   );
 }
@@ -142,7 +254,7 @@ class _RecipeResultCard extends StatelessWidget {
     padding: const EdgeInsets.all(16),
     decoration: BoxDecoration(
       color: Colors.white,
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(16),
       border: Border.all(color: _border),
     ),
     child: Column(
@@ -150,43 +262,74 @@ class _RecipeResultCard extends StatelessWidget {
       children: [
         Row(
           children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: _orangeSoft,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(
+                Icons.restaurant_menu_outlined,
+                color: _orange,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 10),
             Expanded(
               child: Text(
                 recipe.title,
                 style: const TextStyle(
                   color: _ink,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w900,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
                 ),
               ),
             ),
             Text(
               '${(recipe.similarity * 100).round()}% 일치',
-              style: const TextStyle(color: _blue, fontWeight: FontWeight.w800),
+              style: const TextStyle(
+                color: _orange,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
             ),
           ],
         ),
-        const SizedBox(height: 6),
-        Text(recipe.description, style: const TextStyle(color: _sub)),
-        const SizedBox(height: 14),
-        for (var index = 0; index < recipe.steps.length; index++)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 6),
-            child: Row(
-              children: [
-                Text(
-                  'Step ${index + 1}',
-                  style: const TextStyle(fontWeight: FontWeight.w800),
-                ),
-                const Spacer(),
-                Text(
-                  '${recipe.steps[index].temperature.round()}°C · '
-                  '${_offset(recipe.steps[index].timeOffset)}',
-                  style: const TextStyle(color: _sub),
-                ),
-              ],
-            ),
+        if (recipe.description.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Text(
+            recipe.description,
+            style: const TextStyle(color: _sub, fontSize: 13),
           ),
+        ],
+        if (recipe.steps.isNotEmpty) ...[
+          const SizedBox(height: 14),
+          const Divider(height: 1, color: Color(0xFFF3F4F6)),
+          const SizedBox(height: 10),
+          for (var index = 0; index < recipe.steps.length; index++)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Row(
+                children: [
+                  Text(
+                    '단계 ${index + 1}',
+                    style: const TextStyle(
+                      color: _ink,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    '${recipe.steps[index].temperature.round()}°C · '
+                    '${_offset(recipe.steps[index].timeOffset)}',
+                    style: const TextStyle(color: _sub, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+        ],
       ],
     ),
   );

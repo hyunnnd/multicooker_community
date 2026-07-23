@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../../../../core/widgets/app_more_menu_button.dart';
 import 'package:provider/provider.dart';
 
 import '../../data/models/community_models.dart';
@@ -14,7 +16,7 @@ class CommunityCommentSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final provider = context.watch<CommunityProvider>();
+    final provider = context.read<CommunityProvider>();
     final comments = post.comments.where((c) => !provider.hiddenCommentIds.contains(c.id)).toList();
     if (sortNewestFirst) comments.sort((a, b) => b.id.compareTo(a.id));
     return Column(
@@ -64,7 +66,7 @@ class _CommentCardState extends State<_CommentCard> {
 
   @override
   Widget build(BuildContext context) {
-    final provider = context.watch<CommunityProvider>();
+    final provider = context.read<CommunityProvider>();
     final liked = provider.likedCommentIds.contains(widget.comment.id);
     final replies = widget.comment.replies.where((reply) => !provider.hiddenReplyIds.contains(reply.id)).toList();
     return Padding(
@@ -72,7 +74,7 @@ class _CommentCardState extends State<_CommentCard> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          CommunityAvatar(username: widget.comment.username, colorValue: widget.comment.avatarColor, size: 32),
+          CommunityAvatar(username: widget.comment.username, colorValue: widget.comment.avatarColor, imageUrl: widget.comment.avatarImageUrl, size: 32),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
@@ -206,7 +208,7 @@ class _ReplyRowState extends State<_ReplyRow> {
 
   @override
   Widget build(BuildContext context) {
-    final provider = context.watch<CommunityProvider>();
+    final provider = context.read<CommunityProvider>();
     final liked = provider.likedReplyIds.contains(widget.reply.id);
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -215,7 +217,7 @@ class _ReplyRowState extends State<_ReplyRow> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          CommunityAvatar(username: widget.reply.username, colorValue: widget.reply.avatarColor, size: 26),
+          CommunityAvatar(username: widget.reply.username, colorValue: widget.reply.avatarColor, imageUrl: widget.reply.avatarImageUrl, size: 26),
           const SizedBox(width: 8),
           Expanded(
             child: Column(
@@ -288,8 +290,9 @@ class _DotMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return PopupMenuButton<String>(
-      icon: const Icon(Icons.more_horiz, size: 18, color: Color(0xFF9CA3AF)),
+    return AppMoreMenuButton<String>(
+      tooltip: '댓글 메뉴',
+      constraints: const BoxConstraints(minWidth: 120, maxWidth: 200),
       itemBuilder: (_) => [
         if (isOwn) const PopupMenuItem(value: 'edit', child: Text('수정')),
         if (isOwn) const PopupMenuItem(value: 'delete', child: Text('삭제')),

@@ -13,7 +13,4 @@ BoxDecoration communityCardDecoration({double radius = 16}) => BoxDecoration(
       color: kCommunityCard,
       borderRadius: BorderRadius.circular(radius),
       border: Border.all(color: kCommunityBorder),
-      boxShadow: const [
-        BoxShadow(color: Color(0x08000000), blurRadius: 12, offset: Offset(0, 4)),
-      ],
     );

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../../../core/widgets/app_toast.dart';
 import '../provider/cooking_session_provider.dart';
 import 'widgets/cooker_status_panel.dart';
 import 'widgets/cooking_progress_card.dart';
@@ -130,7 +131,7 @@ class GuidedCookingScreen extends StatelessWidget {
                       IconButton.filledTonal(
                         tooltip: session.isPaused ? '재개' : '일시정지',
                         onPressed: session.isPaused
-                            ? session.resumeCooking
+                            ? () => _resumeCooking(context, session)
                             : session.pauseCooking,
                         icon: Icon(
                           session.isPaused ? Icons.play_arrow : Icons.pause,
@@ -197,6 +198,19 @@ class GuidedCookingScreen extends StatelessWidget {
     await session.stopCooking();
     if (context.mounted) context.go('/home');
   }
+}
+
+Future<void> _resumeCooking(
+  BuildContext context,
+  CookingSessionProvider session,
+) async {
+  final roundedMinutes = await session.resumeCooking();
+  if (!context.mounted || roundedMinutes == null) return;
+  showAppToast(
+    context,
+    '30초 기준으로 반올림해 $roundedMinutes분으로 재개했어요.',
+    success: true,
+  );
 }
 
 class _CookingWaitAnimation extends StatefulWidget {

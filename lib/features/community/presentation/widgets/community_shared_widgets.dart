@@ -1,7 +1,13 @@
 part of '../community_screen.dart';
 
 class _SimpleHeader extends StatelessWidget {
-  const _SimpleHeader({required this.title, required this.onBack, this.trailing, this.border = true});
+  const _SimpleHeader({
+    required this.title,
+    required this.onBack,
+    this.trailing,
+    this.border = true,
+  });
+
   final String title;
   final VoidCallback onBack;
   final Widget? trailing;
@@ -10,15 +16,99 @@ class _SimpleHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 52,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: BoxDecoration(border: border ? const Border(bottom: BorderSide(color: _gray100)) : null),
-      child: Stack(
-        alignment: Alignment.center,
+      height: kToolbarHeight,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: border
+            ? const Border(bottom: BorderSide(color: _gray100))
+            : null,
+      ),
+      child: Row(
         children: [
-          Align(alignment: Alignment.centerLeft, child: GestureDetector(onTap: onBack, child: const SizedBox(width: 42, child: Icon(Icons.arrow_back, size: 21, color: _text2)))),
-          Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: _text)),
-          if (trailing != null) Align(alignment: Alignment.centerRight, child: trailing!),
+          SizedBox(
+            width: 64,
+            height: kToolbarHeight,
+            child: AppBackButton(onPressed: onBack),
+          ),
+          Expanded(
+            child: Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+          ),
+          SizedBox(
+            width: 64,
+            child: trailing == null
+                ? const SizedBox.shrink()
+                : Align(
+                    alignment: Alignment.centerRight,
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: trailing!,
+                    ),
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CommunityDetailHeader extends StatelessWidget {
+  const _CommunityDetailHeader({
+    required this.title,
+    required this.onBack,
+    this.trailing,
+    this.titleTextAlign = TextAlign.center,
+    this.titleStyle,
+  });
+
+  final String title;
+  final VoidCallback onBack;
+  final Widget? trailing;
+  final TextAlign titleTextAlign;
+  final TextStyle? titleStyle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      height: kToolbarHeight,
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(bottom: BorderSide(color: _gray200)),
+      ),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 64,
+            height: kToolbarHeight,
+            child: AppBackButton(onPressed: onBack),
+          ),
+          Expanded(
+            child: Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: titleTextAlign,
+              style: titleStyle ?? Theme.of(context).textTheme.titleLarge,
+            ),
+          ),
+          SizedBox(
+            width: 64,
+            child: trailing == null
+                ? const SizedBox.shrink()
+                : Align(
+                    alignment: Alignment.centerRight,
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: trailing!,
+                    ),
+                  ),
+          ),
         ],
       ),
     );
@@ -26,20 +116,56 @@ class _SimpleHeader extends StatelessWidget {
 }
 
 class _Avatar extends StatelessWidget {
-  const _Avatar({required this.name, required this.color, required this.size, required this.fontSize});
+  const _Avatar({
+    required this.name,
+    required this.color,
+    required this.size,
+    required this.fontSize,
+    this.imageUrl,
+  });
   final String name;
   final Color color;
   final double size;
   final double fontSize;
+  final String? imageUrl;
+
+  @override
+  Widget build(BuildContext context) {
+    return CommunityAvatar(
+      username: name,
+      colorValue: color.value,
+      imageUrl: imageUrl,
+      size: size,
+    );
+  }
+}
+
+class _AuthorRoleBadge extends StatelessWidget {
+  const _AuthorRoleBadge({required this.label, this.admin = false});
+
+  final String label;
+  final bool admin;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: size,
-      height: size,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-      child: Text(name.isEmpty ? '?' : name.substring(0, 1), style: TextStyle(fontSize: fontSize, color: Colors.white, fontWeight: FontWeight.w800)),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: admin ? const Color(0xFFEFF6FF) : _orange50,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: admin ? const Color(0xFFBFDBFE) : _orange100,
+        ),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 10,
+          height: 1,
+          fontWeight: FontWeight.w800,
+          color: admin ? const Color(0xFF2563EB) : _orangeText,
+        ),
+      ),
     );
   }
 }
@@ -135,7 +261,7 @@ class _PopularInfo extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      padding: EdgeInsets.zero,
       child: Row(
         children: [
           const Icon(Icons.local_fire_department, size: 16, color: _red),
@@ -231,8 +357,8 @@ class _PostMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return PopupMenuButton<String>(
-      icon: const Icon(Icons.more_vert, size: 21, color: _text2),
+    return AppMoreMenuButton<String>(
+      tooltip: '게시글 메뉴',
       onSelected: (value) {
         if (value == 'edit') onEdit();
         if (value == 'delete') onDelete();
@@ -266,10 +392,9 @@ class _CommentMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return PopupMenuButton<String>(
-      padding: EdgeInsets.zero,
-      constraints: const BoxConstraints(minWidth: 92),
-      icon: Icon(Icons.more_vert, size: small ? 16 : 18, color: _gray400),
+    return AppMoreMenuButton<String>(
+      tooltip: '댓글 메뉴',
+      constraints: const BoxConstraints(minWidth: 120, maxWidth: 200),
       onSelected: (value) {
         if (value == 'edit') onEdit();
         if (value == 'delete') onDelete();

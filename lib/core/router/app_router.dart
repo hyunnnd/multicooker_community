@@ -6,7 +6,6 @@ import '../../features/ai_recommend/presentation/ai_ingredient_scan_screen.dart'
 import '../../features/ai_recommend/presentation/ai_recipe_recommendation_screen.dart';
 import '../../features/auth/presentation/login_screen.dart';
 import '../../features/auth/presentation/register_complete_screen.dart';
-import '../../features/auth/presentation/register_email_screen.dart';
 import '../../features/auth/presentation/register_verify_code_screen.dart';
 import '../../features/auth/presentation/reset_password_complete_screen.dart';
 import '../../features/auth/presentation/reset_password_email_screen.dart';
@@ -32,7 +31,6 @@ import '../../features/splash/presentation/splash_screen.dart';
 import '../widgets/app_back_paths.dart';
 import '../widgets/main_route_back_scope.dart';
 
-
 Widget _withBackFallback(
   GoRouterState state,
   Widget child, {
@@ -50,7 +48,10 @@ final appRouter = GoRouter(
   routes: [
     GoRoute(path: '/', builder: (_, _) => const SplashScreen()),
     GoRoute(path: '/login', builder: (_, _) => const LoginScreen()),
-    GoRoute(path: '/register', builder: (_, _) => const RegisterEmailScreen()),
+    GoRoute(
+      path: '/register',
+      builder: (_, _) => const RegisterCompleteScreen(),
+    ),
     GoRoute(
       path: '/register/verify',
       builder: (_, state) => RegisterVerifyCodeScreen(
@@ -81,14 +82,16 @@ final appRouter = GoRouter(
     ),
     GoRoute(path: '/home', builder: (_, _) => const HomeScreen()),
     GoRoute(
+      path: '/tutorial/home',
+      builder: (_, _) => const HomeScreen(startTutorial: true),
+    ),
+    GoRoute(
       path: '/pet-test',
-      builder: (_, state) =>
-          _withBackFallback(state, const PetTestScreen()),
+      builder: (_, state) => _withBackFallback(state, const PetTestScreen()),
     ),
     GoRoute(
       path: '/device',
-      builder: (_, state) =>
-          _withBackFallback(state, const DeviceScreen()),
+      builder: (_, state) => _withBackFallback(state, const DeviceScreen()),
     ),
     GoRoute(path: '/recipes', builder: (_, _) => const RecipeListScreen()),
     GoRoute(
@@ -103,13 +106,11 @@ final appRouter = GoRouter(
     ),
     GoRoute(
       path: '/recipes/cook-method',
-      builder: (_, state) =>
-          _withBackFallback(state, const CookMethodScreen()),
+      builder: (_, state) => _withBackFallback(state, const CookMethodScreen()),
     ),
     GoRoute(
       path: '/recipes/food-type',
-      builder: (_, state) =>
-          _withBackFallback(state, const FoodTypeScreen()),
+      builder: (_, state) => _withBackFallback(state, const FoodTypeScreen()),
     ),
     GoRoute(
       path: '/recipes/themes',
@@ -186,7 +187,28 @@ final appRouter = GoRouter(
             int.tryParse(state.uri.queryParameters['rating'] ?? '') ?? 5,
         initialWriteReview: state.uri.queryParameters['write'] == '1',
         initialPostId: int.tryParse(state.uri.queryParameters['postId'] ?? ''),
+        initialCommentId:
+            int.tryParse(state.uri.queryParameters['commentId'] ?? ''),
+        initialReplyId:
+            int.tryParse(state.uri.queryParameters['replyId'] ?? ''),
+        initialNoticeId:
+            int.tryParse(state.uri.queryParameters['noticeId'] ?? ''),
       ),
+    ),
+    GoRoute(
+      path: '/community/profile/:id',
+      builder: (_, state) {
+        final userId = int.tryParse(state.pathParameters['id'] ?? '') ?? 0;
+        final from = state.uri.queryParameters['from'];
+        return _withBackFallback(
+          state,
+          CommunityAuthorProfileScreen(
+            userId: userId,
+            editable: state.uri.queryParameters['editable'] == '1',
+          ),
+          fallbackPath: from == 'home' ? '/home' : '/settings',
+        );
+      },
     ),
     GoRoute(path: '/settings', builder: (_, _) => const SettingsScreen()),
     GoRoute(
@@ -195,9 +217,13 @@ final appRouter = GoRouter(
           _withBackFallback(state, const AppSettingsScreen()),
     ),
     GoRoute(
-      path: '/my/recipes',
+      path: '/settings/blocked-users',
       builder: (_, state) =>
-          _withBackFallback(state, const MyRecipesScreen()),
+          _withBackFallback(state, const BlockedUsersScreen()),
+    ),
+    GoRoute(
+      path: '/my/recipes',
+      builder: (_, state) => _withBackFallback(state, const MyRecipesScreen()),
     ),
     GoRoute(
       path: '/my/recipes/new',
@@ -212,18 +238,15 @@ final appRouter = GoRouter(
         final extra = state.extra;
         final recipe = extra is Recipe
             ? extra
-            : context
-                .read<RecipeProvider>()
-                .recipeById(state.pathParameters['id'] ?? '');
+            : context.read<RecipeProvider>().recipeById(
+                state.pathParameters['id'] ?? '',
+              );
         if (recipe == null) {
           return _withBackFallback(state, const MyRecipesScreen());
         }
         return _withBackFallback(
           state,
-          RecipeUploadScreen(
-            returnToMyRecipes: true,
-            initialRecipe: recipe,
-          ),
+          RecipeUploadScreen(returnToMyRecipes: true, initialRecipe: recipe),
         );
       },
     ),
@@ -234,23 +257,17 @@ final appRouter = GoRouter(
     ),
     GoRoute(
       path: '/my/reviews',
-      builder: (_, state) =>
-          _withBackFallback(state, const MyReviewsScreen()),
+      builder: (_, state) => _withBackFallback(state, const MyReviewsScreen()),
     ),
     GoRoute(
       path: '/my/comments',
-      builder: (_, state) =>
-          _withBackFallback(state, const MyCommentsScreen()),
+      builder: (_, state) => _withBackFallback(state, const MyCommentsScreen()),
     ),
     GoRoute(
       path: '/my/cooking-history',
       builder: (_, state) =>
           _withBackFallback(state, const CookingHistoryScreen()),
     ),
-    GoRoute(
-      path: '/my/tutorial',
-      builder: (_, state) =>
-          _withBackFallback(state, const TutorialScreen()),
-    ),
+    GoRoute(path: '/my/tutorial', redirect: (_, _) => '/tutorial/home'),
   ],
 );

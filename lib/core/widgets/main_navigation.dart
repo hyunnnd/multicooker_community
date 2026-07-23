@@ -93,24 +93,70 @@ class _NavItem {
 }
 
 class AppBackButton extends StatelessWidget {
-  const AppBackButton({this.fallbackPath, super.key});
+  const AppBackButton({
+    this.fallbackPath,
+    this.heroOverlay = false,
+    this.onPressed,
+    super.key,
+  });
 
   final String? fallbackPath;
+  final bool heroOverlay;
+  final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {
-    return IconButton(
-      tooltip: '뒤로가기',
-      icon: const Icon(Icons.arrow_back),
-      color: const Color(0xFF6B7280),
-      onPressed: () {
-        if (context.canPop()) {
-          context.pop();
-          return;
-        }
-        final currentPath = GoRouterState.of(context).uri.path;
-        context.go(fallbackPath ?? appBackFallbackForPath(currentPath));
-      },
+    void goBack() {
+      if (onPressed != null) {
+        onPressed!();
+        return;
+      }
+      if (context.canPop()) {
+        context.pop();
+        return;
+      }
+      final currentPath = GoRouterState.of(context).uri.path;
+      context.go(fallbackPath ?? appBackFallbackForPath(currentPath));
+    }
+
+    if (!heroOverlay) {
+      return Center(
+        child: Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            color: const Color(0xFFF3F4F6),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: IconButton(
+            tooltip: '뒤로가기',
+            padding: EdgeInsets.zero,
+            icon: const Icon(Icons.arrow_back_rounded, size: 18),
+            color: const Color(0xFF6B7280),
+            onPressed: goBack,
+          ),
+        ),
+      );
+    }
+
+    return Center(
+      child: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: const Color(0x99505050),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: IconButton(
+          tooltip: '뒤로가기',
+          onPressed: goBack,
+          icon: const Icon(
+            Icons.arrow_back_rounded,
+            size: 24,
+            color: Colors.white,
+          ),
+        ),
+      ),
     );
   }
 }

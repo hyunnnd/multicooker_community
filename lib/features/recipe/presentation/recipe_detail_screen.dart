@@ -127,9 +127,7 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
     );
     if (recipe == null) {
       if (!_lookupStarted || _lookupInProgress || provider.isLoading) {
-        return const Scaffold(
-          body: Center(child: CircularProgressIndicator()),
-        );
+        return const Scaffold(body: Center(child: CircularProgressIndicator()));
       }
       return Scaffold(
         appBar: AppBar(title: const Text('레시피')),
@@ -373,28 +371,33 @@ class _Hero extends StatelessWidget {
   @override
   Widget build(BuildContext context) => SliverAppBar(
     expandedHeight: 250,
-    leading: const AppBackButton(),
+    leadingWidth: 56,
+    leading: const Padding(
+      padding: EdgeInsets.only(left: 16),
+      child: AppBackButton(heroOverlay: true),
+    ),
+    actionsPadding: const EdgeInsets.only(right: 12),
     actions: [
       if (onEdit != null)
-        IconButton(
+        _HeroActionButton(
           tooltip: '내 레시피 수정',
-          onPressed: onEdit,
-          icon: const Icon(Icons.edit_outlined),
+          onPressed: onEdit!,
+          icon: Icons.edit_outlined,
         ),
-      IconButton(
+      _HeroActionButton(
         tooltip: liked ? '좋아요 취소' : '좋아요',
         onPressed: onLike,
-        icon: Icon(liked ? Icons.favorite : Icons.favorite_border),
+        icon: liked ? Icons.favorite : Icons.favorite_border,
       ),
-      IconButton(
+      _HeroActionButton(
         tooltip: recipe.isSaved ? '저장 취소' : '저장',
         onPressed: onSave,
-        icon: Icon(recipe.isSaved ? Icons.bookmark : Icons.bookmark_border),
+        icon: recipe.isSaved ? Icons.bookmark : Icons.bookmark_border,
       ),
-      IconButton(
+      _HeroActionButton(
         tooltip: '공유',
         onPressed: onShare,
-        icon: const Icon(Icons.ios_share),
+        icon: Icons.ios_share,
       ),
     ],
     iconTheme: const IconThemeData(color: Colors.white),
@@ -449,6 +452,38 @@ class _Hero extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    ),
+  );
+}
+
+class _HeroActionButton extends StatelessWidget {
+  const _HeroActionButton({
+    required this.tooltip,
+    required this.onPressed,
+    required this.icon,
+  });
+
+  final String tooltip;
+  final VoidCallback onPressed;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: 48,
+    child: Center(
+      child: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: const Color(0x99505050),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: IconButton(
+          tooltip: tooltip,
+          onPressed: onPressed,
+          icon: Icon(icon, size: 21, color: Colors.white),
+        ),
       ),
     ),
   );
@@ -667,14 +702,8 @@ class _CommunitySectionState extends State<_CommunitySection> {
         children: [
           SegmentedButton<bool>(
             segments: [
-              ButtonSegment(
-                value: true,
-                label: Text('후기 ${reviews.length}'),
-              ),
-              ButtonSegment(
-                value: false,
-                label: Text('댓글 ${comments.length}'),
-              ),
+              ButtonSegment(value: true, label: Text('후기 ${reviews.length}')),
+              ButtonSegment(value: false, label: Text('댓글 ${comments.length}')),
             ],
             selected: {_reviews},
             onSelectionChanged: (value) =>
@@ -697,10 +726,7 @@ class _CommunitySectionState extends State<_CommunitySection> {
                 const Expanded(
                   child: Text(
                     '레시피에 대한 질문이나 조리 팁을 남겨보세요.',
-                    style: TextStyle(
-                      color: Color(0xFF77736C),
-                      fontSize: 12,
-                    ),
+                    style: TextStyle(color: Color(0xFF77736C), fontSize: 12),
                   ),
                 ),
               if (_reviews) const Spacer(),
@@ -714,6 +740,15 @@ class _CommunitySectionState extends State<_CommunitySection> {
                     child: Text(_reviews ? '인기순' : '오래된순'),
                   ),
                 ],
+                dropdownColor: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                elevation: 4,
+                iconEnabledColor: const Color(0xFF6B7280),
+                style: const TextStyle(
+                  color: Color(0xFF111827),
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
                 onChanged: (value) => setState(() => _latest = value ?? true),
               ),
             ],
@@ -739,9 +774,8 @@ class _CommunitySectionState extends State<_CommunitySection> {
                     ),
                   ),
                   TextButton(
-                    onPressed: () => provider.loadRecipeCommunity(
-                      widget.recipe.id,
-                    ),
+                    onPressed: () =>
+                        provider.loadRecipeCommunity(widget.recipe.id),
                     child: const Text('다시 시도'),
                   ),
                 ],
@@ -802,61 +836,57 @@ class _CommunitySectionState extends State<_CommunitySection> {
   }
 
   Widget _buildCommentComposer() => Container(
-        padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF7F5F1),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: _border),
+    padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+    decoration: BoxDecoration(
+      color: const Color(0xFFF7F5F1),
+      borderRadius: BorderRadius.circular(8),
+      border: Border.all(color: _border),
+    ),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        const CircleAvatar(
+          radius: 17,
+          backgroundColor: Color(0xFFE7E2D8),
+          child: Icon(Icons.person_outline, size: 19, color: Color(0xFF77736C)),
         ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            const CircleAvatar(
-              radius: 17,
-              backgroundColor: Color(0xFFE7E2D8),
-              child: Icon(
-                Icons.person_outline,
-                size: 19,
-                color: Color(0xFF77736C),
-              ),
+        const SizedBox(width: 9),
+        Expanded(
+          child: TextField(
+            controller: _commentController,
+            minLines: 1,
+            maxLines: 4,
+            maxLength: 500,
+            textAlignVertical: TextAlignVertical.center,
+            decoration: const InputDecoration(
+              hintText: '댓글을 입력하세요.',
+              counterText: '',
+              isDense: true,
+              filled: false,
+              border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              contentPadding: EdgeInsets.symmetric(vertical: 10),
             ),
-            const SizedBox(width: 9),
-            Expanded(
-              child: TextField(
-                controller: _commentController,
-                minLines: 1,
-                maxLines: 4,
-                maxLength: 500,
-                textAlignVertical: TextAlignVertical.center,
-                decoration: const InputDecoration(
-                  hintText: '댓글을 입력하세요.',
-                  counterText: '',
-                  isDense: true,
-                  filled: false,
-                  border: InputBorder.none,
-                  enabledBorder: InputBorder.none,
-                  focusedBorder: InputBorder.none,
-                  contentPadding: EdgeInsets.symmetric(vertical: 10),
-                ),
-              ),
-            ),
-            IconButton.filled(
-              onPressed: _submittingComment ? null : _submitComment,
-              style: IconButton.styleFrom(backgroundColor: _orange),
-              icon: _submittingComment
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Icon(Icons.send_rounded, size: 19),
-            ),
-          ],
+          ),
         ),
-      );
+        IconButton.filled(
+          onPressed: _submittingComment ? null : _submitComment,
+          style: IconButton.styleFrom(backgroundColor: _orange),
+          icon: _submittingComment
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+              : const Icon(Icons.send_rounded, size: 19),
+        ),
+      ],
+    ),
+  );
 
   Future<void> _openReviewWriter() async {
     final params = <String, String>{
@@ -870,9 +900,9 @@ class _CommunitySectionState extends State<_CommunitySection> {
       Uri(path: '/community', queryParameters: params).toString(),
     );
     if (!mounted || created != true) return;
-    await context
-        .read<CommunityProvider>()
-        .loadRecipeCommunity(widget.recipe.id);
+    await context.read<CommunityProvider>().loadRecipeCommunity(
+      widget.recipe.id,
+    );
   }
 
   Future<void> _submitComment() async {
@@ -880,10 +910,10 @@ class _CommunitySectionState extends State<_CommunitySection> {
     if (content.isEmpty) return;
     setState(() => _submittingComment = true);
     final ok = await context.read<CommunityProvider>().addRecipeComment(
-          recipeId: widget.recipe.id,
-          recipeTitle: widget.recipe.title,
-          content: content,
-        );
+      recipeId: widget.recipe.id,
+      recipeTitle: widget.recipe.title,
+      content: content,
+    );
     if (!mounted) return;
     setState(() => _submittingComment = false);
     if (ok) {
@@ -927,10 +957,10 @@ class _CommunitySectionState extends State<_CommunitySection> {
     controller.dispose();
     if (!mounted || content == null || content.isEmpty) return;
     final ok = await context.read<CommunityProvider>().updateRecipeComment(
-          widget.recipe.id,
-          comment.id,
-          content,
-        );
+      widget.recipe.id,
+      comment.id,
+      content,
+    );
     if (!ok && mounted) {
       _showMessage('댓글을 수정하지 못했습니다.');
     }
@@ -956,9 +986,9 @@ class _CommunitySectionState extends State<_CommunitySection> {
     );
     if (confirmed != true || !mounted) return;
     final ok = await context.read<CommunityProvider>().deleteRecipeComment(
-          widget.recipe.id,
-          comment.id,
-        );
+      widget.recipe.id,
+      comment.id,
+    );
     if (!ok && mounted) _showMessage('댓글을 삭제하지 못했습니다.');
   }
 
@@ -977,103 +1007,94 @@ class _RecipeReviewTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(vertical: 14),
-        decoration: const BoxDecoration(
-          border: Border(bottom: BorderSide(color: _border)),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            CircleAvatar(
-              radius: 19,
-              backgroundColor: Color(review.avatarColor),
-              child: Text(
-                review.username.isEmpty ? '?' : review.username.characters.first,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
+    padding: const EdgeInsets.symmetric(vertical: 14),
+    decoration: const BoxDecoration(
+      border: Border(bottom: BorderSide(color: _border)),
+    ),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        CircleAvatar(
+          radius: 19,
+          backgroundColor: Color(review.avatarColor),
+          child: Text(
+            review.username.isEmpty ? '?' : review.username.characters.first,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w900,
             ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
                 children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          review.username,
-                          style: const TextStyle(
-                            color: _ink,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
+                  Expanded(
+                    child: Text(
+                      review.username,
+                      style: const TextStyle(
+                        color: _ink,
+                        fontWeight: FontWeight.w900,
                       ),
-                      Text(
-                        review.relativeTime,
-                        style: const TextStyle(
-                          color: Color(0xFF99948B),
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      for (var value = 1; value <= 5; value++)
-                        Icon(
-                          value <= review.rating
-                              ? Icons.star_rounded
-                              : Icons.star_border_rounded,
-                          size: 17,
-                          color: _orange,
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 7),
                   Text(
-                    review.content,
+                    review.relativeTime,
                     style: const TextStyle(
-                      color: Color(0xFF55514B),
-                      height: 1.45,
+                      color: Color(0xFF99948B),
+                      fontSize: 12,
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  TextButton.icon(
-                    onPressed: onLike,
-                    style: TextButton.styleFrom(
-                      foregroundColor: review.isLiked
-                          ? _orange
-                          : const Color(0xFF77736C),
-                      padding: EdgeInsets.zero,
-                      minimumSize: const Size(0, 32),
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    ),
-                    icon: Icon(
-                      review.isLiked
-                          ? Icons.favorite
-                          : Icons.favorite_border,
-                      size: 17,
-                    ),
-                    label: Text('좋아요 ${review.likes}'),
                   ),
                 ],
               ),
-            ),
-          ],
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  for (var value = 1; value <= 5; value++)
+                    Icon(
+                      value <= review.rating
+                          ? Icons.star_rounded
+                          : Icons.star_border_rounded,
+                      size: 17,
+                      color: _orange,
+                    ),
+                ],
+              ),
+              const SizedBox(height: 7),
+              Text(
+                review.content,
+                style: const TextStyle(color: Color(0xFF55514B), height: 1.45),
+              ),
+              const SizedBox(height: 4),
+              TextButton.icon(
+                onPressed: onLike,
+                style: TextButton.styleFrom(
+                  foregroundColor: review.isLiked
+                      ? _orange
+                      : const Color(0xFF77736C),
+                  padding: EdgeInsets.zero,
+                  minimumSize: const Size(0, 32),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                icon: Icon(
+                  review.isLiked ? Icons.favorite : Icons.favorite_border,
+                  size: 17,
+                ),
+                label: Text('좋아요 ${review.likes}'),
+              ),
+            ],
+          ),
         ),
-      );
+      ],
+    ),
+  );
 }
 
 class _RecipeCommentTile extends StatelessWidget {
-  const _RecipeCommentTile({
-    required this.comment,
-    this.onEdit,
-    this.onDelete,
-  });
+  const _RecipeCommentTile({required this.comment, this.onEdit, this.onDelete});
 
   final RecipeCommunityComment comment;
   final VoidCallback? onEdit;
@@ -1081,78 +1102,73 @@ class _RecipeCommentTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(vertical: 14),
-        decoration: const BoxDecoration(
-          border: Border(bottom: BorderSide(color: _border)),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            CircleAvatar(
-              radius: 19,
-              backgroundColor: Color(comment.avatarColor),
-              child: Text(
-                comment.username.isEmpty
-                    ? '?'
-                    : comment.username.characters.first,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
+    padding: const EdgeInsets.symmetric(vertical: 14),
+    decoration: const BoxDecoration(
+      border: Border(bottom: BorderSide(color: _border)),
+    ),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        CircleAvatar(
+          radius: 19,
+          backgroundColor: Color(comment.avatarColor),
+          child: Text(
+            comment.username.isEmpty ? '?' : comment.username.characters.first,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w900,
             ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
                 children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          comment.username,
-                          style: const TextStyle(
-                            color: _ink,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
+                  Expanded(
+                    child: Text(
+                      comment.username,
+                      style: const TextStyle(
+                        color: _ink,
+                        fontWeight: FontWeight.w900,
                       ),
-                      Text(
-                        comment.relativeTime,
-                        style: const TextStyle(
-                          color: Color(0xFF99948B),
-                          fontSize: 12,
-                        ),
-                      ),
-                      if (comment.isMine)
-                        PopupMenuButton<String>(
-                          padding: EdgeInsets.zero,
-                          iconSize: 19,
-                          onSelected: (value) {
-                            if (value == 'edit') onEdit?.call();
-                            if (value == 'delete') onDelete?.call();
-                          },
-                          itemBuilder: (_) => const [
-                            PopupMenuItem(value: 'edit', child: Text('수정')),
-                            PopupMenuItem(value: 'delete', child: Text('삭제')),
-                          ],
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
-                    comment.content,
-                    style: const TextStyle(
-                      color: Color(0xFF55514B),
-                      height: 1.45,
                     ),
                   ),
+                  Text(
+                    comment.relativeTime,
+                    style: const TextStyle(
+                      color: Color(0xFF99948B),
+                      fontSize: 12,
+                    ),
+                  ),
+                  if (comment.isMine)
+                    PopupMenuButton<String>(
+                      padding: EdgeInsets.zero,
+                      iconSize: 19,
+                      onSelected: (value) {
+                        if (value == 'edit') onEdit?.call();
+                        if (value == 'delete') onDelete?.call();
+                      },
+                      itemBuilder: (_) => const [
+                        PopupMenuItem(value: 'edit', child: Text('수정')),
+                        PopupMenuItem(value: 'delete', child: Text('삭제')),
+                      ],
+                    ),
                 ],
               ),
-            ),
-          ],
+              const SizedBox(height: 5),
+              Text(
+                comment.content,
+                style: const TextStyle(color: Color(0xFF55514B), height: 1.45),
+              ),
+            ],
+          ),
         ),
-      );
+      ],
+    ),
+  );
 }
 
 class _RecipeCommunityEmpty extends StatelessWidget {
@@ -1163,20 +1179,17 @@ class _RecipeCommunityEmpty extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 28),
-        child: Column(
-          children: [
-            Icon(icon, color: const Color(0xFFB8B2A8), size: 34),
-            const SizedBox(height: 8),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Color(0xFF77736C),
-                height: 1.5,
-              ),
-            ),
-          ],
+    padding: const EdgeInsets.symmetric(vertical: 28),
+    child: Column(
+      children: [
+        Icon(icon, color: const Color(0xFFB8B2A8), size: 34),
+        const SizedBox(height: 8),
+        Text(
+          message,
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: Color(0xFF77736C), height: 1.5),
         ),
-      );
+      ],
+    ),
+  );
 }

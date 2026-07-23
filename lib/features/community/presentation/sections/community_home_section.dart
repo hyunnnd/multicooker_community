@@ -40,7 +40,7 @@ class _CommunityHomeSectionState extends State<CommunityHomeSection> {
 
   @override
   Widget build(BuildContext context) {
-    final provider = context.watch<CommunityProvider>();
+    final provider = context.read<CommunityProvider>();
     final posts = provider.filteredPosts();
     final popular = provider.popularPosts();
     return Stack(

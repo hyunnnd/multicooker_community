@@ -30,7 +30,7 @@ class RecipeReviewCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              CommunityAvatar(username: review.username, colorValue: review.avatarColor, size: 22),
+              CommunityAvatar(username: review.username, colorValue: review.avatarColor, imageUrl: review.avatarImageUrl, size: 22),
               const SizedBox(width: 6),
               Text(review.username, style: const TextStyle(fontSize: 12, color: Color(0xFF374151), fontWeight: FontWeight.w700)),
               const SizedBox(width: 4),

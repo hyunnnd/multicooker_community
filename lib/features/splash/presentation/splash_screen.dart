@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../../core/widgets/graphene_mark_3d.dart';
 import '../../auth/provider/auth_provider.dart';
+import '../../profile/provider/profile_provider.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -31,7 +32,19 @@ class _SplashScreenState extends State<SplashScreen> {
       }),
     ]);
     if (!mounted) return;
-    context.go(auth.isAuthenticated ? '/home' : '/login');
+    if (!auth.isAuthenticated) {
+      context.go('/login');
+      return;
+    }
+
+    final profile = context.read<ProfileProvider>();
+    final settingsLoaded = auth.localApiReady && await profile.loadSettings();
+    if (!mounted) return;
+    context.go(
+      settingsLoaded && !profile.settings.tutorialCompleted
+          ? '/my/tutorial'
+          : '/home',
+    );
   }
 
   @override

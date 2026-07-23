@@ -28,6 +28,11 @@ abstract class RecipeRepository {
     required List<RecipeStep> steps,
   }) => throw UnimplementedError('내 레시피 수정을 지원하지 않습니다.');
 
+  Future<Recipe> updateMyRecipeVisibility({
+    required String recipeId,
+    required String visibility,
+  }) => throw UnimplementedError('레시피 공개 범위 변경을 지원하지 않습니다.');
+
   Future<void> deleteMyRecipe(String recipeId) =>
       throw UnimplementedError('내 레시피 삭제를 지원하지 않습니다.');
 
