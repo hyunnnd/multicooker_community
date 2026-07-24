@@ -118,7 +118,7 @@ class CommunityPostCard extends StatelessWidget {
             const SizedBox(height: 10),
             Row(
               children: [
-                _ActionButton(icon: liked ? Icons.favorite : Icons.favorite_border, label: '$totalLikes', active: liked, activeColor: const Color(0xFFEF4444), onTap: onLike),
+                _ActionButton(icon: liked ? Icons.favorite : Icons.favorite_border, label: '${post.likes}', active: liked, activeColor: const Color(0xFFEF4444), onTap: onLike),
                 const SizedBox(width: 18),
                 const Icon(Icons.mode_comment_outlined, size: 16, color: Color(0xFF9CA3AF)),
                 const SizedBox(width: 4),

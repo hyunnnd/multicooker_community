@@ -1105,7 +1105,7 @@ class _RecipeReviewTile extends StatelessWidget {
                   review.isLiked ? Icons.favorite : Icons.favorite_border,
                   size: 17,
                 ),
-                label: Text('좋아요 ${review.likes}'),
+                label: Text('${review.likes}'),
               ),
             ],
           ),

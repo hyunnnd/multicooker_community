@@ -75,6 +75,11 @@ class _HomeScreenState extends State<HomeScreen> {
     final recipeProvider = context.watch<RecipeProvider>();
     final featured = figmaFeaturedRecipe(recipeProvider.recipes);
     final tutorialBottomInset = MediaQuery.paddingOf(context).bottom + 76;
+    final savedRecipeSubtitle = profile.summary != null
+        ? '${profile.summary!.savedRecipeCount}개'
+        : profile.savedRecipes.isNotEmpty
+            ? '${profile.savedRecipes.length}개'
+            : '…';
 
     final steps = [
       SpotlightTutorialStep(
@@ -303,7 +308,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             iconColor: figmaNavy,
                             backgroundColor: const Color(0xFFEFF6FF),
                             label: '저장한 레시피',
-                            subtitle: '${profile.savedRecipes.length}개',
+                            subtitle: savedRecipeSubtitle,
                             onTap: () => context.push('/my/saved-recipes'),
                           ),
                         ),
