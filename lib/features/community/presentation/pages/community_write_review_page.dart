@@ -15,7 +15,14 @@ class _WriteReviewPage extends StatefulWidget {
   final String initialRecipeImage;
   final int initialRating;
   final VoidCallback onBack;
-  final Future<void> Function(String recipeId, String recipeTitle, String recipeImage, int rating, String content) onSubmit;
+  final Future<void> Function(
+    String recipeId,
+    String recipeTitle,
+    String recipeImage,
+    String? reviewImageUrl,
+    int rating,
+    String content,
+  ) onSubmit;
 
   @override
   State<_WriteReviewPage> createState() => _WriteReviewPageState();
@@ -24,6 +31,9 @@ class _WriteReviewPage extends StatefulWidget {
 class _WriteReviewPageState extends State<_WriteReviewPage> {
   late final TextEditingController _recipeController;
   final _contentController = TextEditingController();
+  final _imagePicker = ImagePicker();
+  Uint8List? _reviewImageBytes;
+  String? _reviewImageFilename;
   late int _rating;
   bool _submitting = false;
 
@@ -123,6 +133,120 @@ class _WriteReviewPageState extends State<_WriteReviewPage> {
               ],
             ),
           ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: _gray100),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Row(
+                  children: [
+                    Text(
+                      '사진 첨부',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: _gray500,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    SizedBox(width: 5),
+                    Text(
+                      '(선택)',
+                      style: TextStyle(fontSize: 11, color: _gray400),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                if (_reviewImageBytes == null)
+                  InkWell(
+                    onTap: _submitting ? null : _pickReviewImage,
+                    borderRadius: BorderRadius.circular(14),
+                    child: Container(
+                      height: 104,
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        color: _gray100,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: _gray200),
+                      ),
+                      child: const Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.add_photo_alternate_outlined, size: 30, color: _gray500),
+                          SizedBox(height: 7),
+                          Text(
+                            '조리 결과 사진 추가',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: _gray500,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          SizedBox(height: 3),
+                          Text(
+                            '사진은 1장까지 등록할 수 있습니다.',
+                            style: TextStyle(fontSize: 11, color: _gray400),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                else
+                  Stack(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(14),
+                        child: Image.memory(
+                          _reviewImageBytes!,
+                          width: double.infinity,
+                          height: 210,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                      Positioned(
+                        top: 8,
+                        right: 8,
+                        child: Material(
+                          color: Colors.black54,
+                          shape: const CircleBorder(),
+                          child: InkWell(
+                            onTap: _submitting
+                                ? null
+                                : () => setState(() {
+                                      _reviewImageBytes = null;
+                                      _reviewImageFilename = null;
+                                    }),
+                            customBorder: const CircleBorder(),
+                            child: const Padding(
+                              padding: EdgeInsets.all(7),
+                              child: Icon(Icons.close_rounded, size: 19, color: Colors.white),
+                            ),
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        left: 8,
+                        bottom: 8,
+                        child: FilledButton.tonalIcon(
+                          onPressed: _submitting ? null : _pickReviewImage,
+                          icon: const Icon(Icons.photo_library_outlined, size: 17),
+                          label: const Text('사진 변경'),
+                          style: FilledButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            visualDensity: VisualDensity.compact,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+          ),
           const SizedBox(height: 16),
           FilledButton(
             onPressed: _submitting ? null : _submit,
@@ -138,16 +262,55 @@ class _WriteReviewPageState extends State<_WriteReviewPage> {
     );
   }
 
-  Future<void> _submit() async {
-    if (_recipeController.text.trim().isEmpty || _contentController.text.trim().isEmpty) return;
-    setState(() => _submitting = true);
-    await widget.onSubmit(
-      widget.initialRecipeId.isEmpty ? _recipeController.text.trim() : widget.initialRecipeId,
-      _recipeController.text.trim(),
-      widget.initialRecipeImage,
-      _rating,
-      _contentController.text.trim(),
+  Future<void> _pickReviewImage() async {
+    final picked = await _imagePicker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 1920,
+      imageQuality: 85,
     );
-    if (mounted) setState(() => _submitting = false);
+    if (picked == null) return;
+    final bytes = await picked.readAsBytes();
+    if (!mounted) return;
+    setState(() {
+      _reviewImageBytes = bytes;
+      _reviewImageFilename = picked.name;
+    });
+  }
+
+  Future<void> _submit() async {
+    if (_recipeController.text.trim().isEmpty ||
+        _contentController.text.trim().isEmpty) {
+      return;
+    }
+    setState(() => _submitting = true);
+    try {
+      String? reviewImageUrl;
+      if (_reviewImageBytes != null) {
+        reviewImageUrl = await context.read<CommunityProvider>().uploadPostImage(
+              bytes: _reviewImageBytes!,
+              filename: _reviewImageFilename ?? 'review.jpg',
+            );
+      }
+      await widget.onSubmit(
+        widget.initialRecipeId.isEmpty
+            ? _recipeController.text.trim()
+            : widget.initialRecipeId,
+        _recipeController.text.trim(),
+        widget.initialRecipeImage,
+        reviewImageUrl,
+        _rating,
+        _contentController.text.trim(),
+      );
+    } catch (_) {
+      if (mounted) {
+        final message = context.read<CommunityProvider>().errorMessage ??
+            '후기 사진을 업로드하지 못했습니다.';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(message)),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
   }
 }

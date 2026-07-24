@@ -1068,6 +1068,28 @@ class _RecipeReviewTile extends StatelessWidget {
                 review.content,
                 style: const TextStyle(color: Color(0xFF55514B), height: 1.45),
               ),
+              if (review.reviewImageUrl?.trim().isNotEmpty == true) ...[
+                const SizedBox(height: 10),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: Image.network(
+                    review.reviewImageUrl!,
+                    width: double.infinity,
+                    height: 160,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Container(
+                      width: double.infinity,
+                      height: 80,
+                      alignment: Alignment.center,
+                      color: const Color(0xFFF4F1EB),
+                      child: const Icon(
+                        Icons.broken_image_outlined,
+                        color: Color(0xFF99948B),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
               const SizedBox(height: 4),
               TextButton.icon(
                 onPressed: onLike,

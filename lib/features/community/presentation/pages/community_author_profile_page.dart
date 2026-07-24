@@ -54,7 +54,13 @@ class _CommunityAuthorProfilePageState
       color: _bg,
       child: Column(
         children: [
-          _CommunityDetailHeader(title: '작성자 프로필', onBack: widget.onBack),
+          _CommunityDetailHeader(
+            title: '작성자 프로필',
+            onBack: widget.onBack,
+            compactRightTitle: true,
+            backgroundColor: _bg,
+            showBorder: false,
+          ),
           Expanded(
             child: loading && profile == null
                 ? const Center(

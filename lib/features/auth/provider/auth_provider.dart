@@ -83,6 +83,8 @@ class AuthProvider extends ChangeNotifier {
       final profile = await _repository.me();
       _applyProfile(profile);
       await _repository.ensureLocalApiSession(companyProfile: profile);
+      final localProfile = await _repository.localProfile();
+      _applyProfile(localProfile);
       localApiReady = true;
       return true;
     } catch (error) {
@@ -161,6 +163,10 @@ class AuthProvider extends ChangeNotifier {
   Future<void> _restoreLocalApi(Map<String, dynamic> profile) async {
     try {
       await _repository.ensureLocalApiSession(companyProfile: profile);
+      // 회사 API 프로필은 로그인 신원 확인용이고, 앱에서 수정한 닉네임과
+      // 프로필 이미지는 로컬 API 값을 최종 표시값으로 사용합니다.
+      final localProfile = await _repository.localProfile();
+      _applyProfile(localProfile);
       localApiReady = true;
       localApiError = null;
     } catch (error) {

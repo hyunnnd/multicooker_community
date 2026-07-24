@@ -206,8 +206,10 @@ class _PostDetailPageState extends State<_PostDetailPage> {
         child: Column(
           children: [
             _CommunityDetailHeader(
-              title: '게시글',
+              title: '',
               onBack: widget.onBack,
+              backgroundColor: _bg,
+              showBorder: false,
             ),
             const Expanded(
               child: Center(
@@ -235,8 +237,10 @@ class _PostDetailPageState extends State<_PostDetailPage> {
           Column(
             children: [
               _CommunityDetailHeader(
-                title: '게시글',
+                title: '',
                 onBack: widget.onBack,
+                backgroundColor: _bg,
+                showBorder: false,
                 trailing: _PostMenu(
                   isMine: post.isMine,
                   onEdit: () => widget.onEdit(post.id),

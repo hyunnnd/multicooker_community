@@ -596,12 +596,13 @@ class _CommunityScreenState extends State<CommunityScreen> {
             initialRecipeImage: widget.initialRecipeImage ?? '',
             initialRating: widget.initialReviewRating,
             onBack: () => _closeWriteReview(),
-            onSubmit: (recipeId, recipeTitle, recipeImage, rating, content) async {
+            onSubmit: (recipeId, recipeTitle, recipeImage, reviewImageUrl, rating, content) async {
               try {
                 await context.read<CommunityProvider>().createReview(
                       recipeId: recipeId,
                       recipeTitle: recipeTitle,
                       recipeImage: recipeImage,
+                      reviewImageUrl: reviewImageUrl,
                       rating: rating,
                       content: content,
                     );

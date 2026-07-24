@@ -219,7 +219,7 @@ class _CommunityHeader extends StatelessWidget {
                   child: Text(
                     '커뮤니티',
                     style: TextStyle(
-                      fontSize: 20,
+                      fontSize: 18,
                       height: 1.2,
                       fontWeight: FontWeight.w900,
                       color: _text,

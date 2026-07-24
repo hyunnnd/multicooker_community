@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from sqlalchemy import event, or_
+from sqlalchemy import and_, event, or_
 from sqlalchemy.orm import Session as SQLAlchemySession
 from sqlmodel import Field, SQLModel, Session, create_engine, select
 
@@ -510,6 +510,17 @@ class CommunityBlock(SQLModel, table=True):
     blocked_username: str = Field(default="", index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
+class UploadAsset(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    owner_user_id: int = Field(index=True)
+    storage_key: str = Field(index=True)
+    image_url: str
+    status: str = Field(default="temporary", index=True)
+    entity_type: str = ""
+    entity_id: Optional[int] = Field(default=None, index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    completed_at: Optional[datetime] = None
+
 class RecipeReview(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     owner_user_id: Optional[int] = Field(default=None, index=True)
@@ -517,6 +528,7 @@ class RecipeReview(SQLModel, table=True):
     avatar_color: int
     recipe_title: str
     recipe_image: str
+    review_image_url: Optional[str] = None
     rating: int
     content: str
     date: str
@@ -1023,6 +1035,105 @@ def _local_file_path(s3_key: str) -> str:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     return path
 
+def _storage_key_from_url(image_url: Optional[str]) -> Optional[str]:
+    if not image_url:
+        return None
+    marker = "/_local_s3/"
+    if marker not in image_url:
+        return None
+    key = image_url.split(marker, 1)[1].split("?", 1)[0].strip("/")
+    return key or None
+
+def _delete_local_upload(image_url: Optional[str]) -> bool:
+    key = _storage_key_from_url(image_url)
+    if not key:
+        return False
+    path = _local_file_path(key)
+    try:
+        if os.path.isfile(path):
+            os.remove(path)
+            # Remove empty date/category directories without touching UPLOAD_DIR.
+            parent = Path(path).parent
+            upload_root = Path(UPLOAD_DIR).resolve()
+            while parent.resolve() != upload_root and parent.exists():
+                try:
+                    parent.rmdir()
+                except OSError:
+                    break
+                parent = parent.parent
+            return True
+    except OSError:
+        return False
+    return False
+
+def _complete_upload_asset(
+    session: Session,
+    *,
+    image_url: Optional[str],
+    user_id: int,
+    entity_type: str,
+    entity_id: int,
+) -> None:
+    if not image_url:
+        return
+    row = session.exec(
+        select(UploadAsset)
+        .where(UploadAsset.image_url == image_url)
+        .where(UploadAsset.owner_user_id == user_id)
+    ).first()
+    if row is None:
+        return
+    row.status = "completed"
+    row.entity_type = entity_type
+    row.entity_id = entity_id
+    row.completed_at = datetime.utcnow()
+    session.add(row)
+
+def _remove_upload_asset_for_entity(
+    session: Session,
+    *,
+    image_url: Optional[str],
+    entity_type: str,
+    entity_id: int,
+) -> None:
+    if not image_url:
+        return
+    rows = session.exec(
+        select(UploadAsset)
+        .where(UploadAsset.entity_type == entity_type)
+        .where(UploadAsset.entity_id == entity_id)
+    ).all()
+    if not rows:
+        rows = session.exec(select(UploadAsset).where(UploadAsset.image_url == image_url)).all()
+    for row in rows:
+        session.delete(row)
+    _delete_local_upload(image_url)
+
+def _cleanup_orphan_uploads(*, older_than_hours: int = 24) -> int:
+    cutoff = datetime.utcnow() - timedelta(hours=max(1, older_than_hours))
+    removed = 0
+    with Session(engine) as session:
+        rows = session.exec(
+            select(UploadAsset)
+            .where(UploadAsset.status == "temporary")
+            .where(UploadAsset.created_at < cutoff)
+        ).all()
+        for row in rows:
+            _delete_local_upload(row.image_url)
+            session.delete(row)
+            removed += 1
+        session.commit()
+    return removed
+
+def _upload_cleanup_loop() -> None:
+    # The first cleanup runs after startup; subsequent runs are every six hours.
+    while True:
+        try:
+            _cleanup_orphan_uploads(older_than_hours=24)
+        except Exception:
+            api_logger.exception("temporary upload cleanup failed")
+        time.sleep(6 * 60 * 60)
+
 def _recipe_steps(session: Session, recipe_id: int) -> list[RecipeStepRecord]:
     rows = session.exec(select(RecipeStepRecord).where(RecipeStepRecord.recipe_id == recipe_id)).all()
     return sorted(rows, key=lambda s: (s.sort_order, s.id or 0))
@@ -1339,6 +1450,7 @@ def _review_payload(session: Session, review: RecipeReview, user: User) -> dict:
         "avatar_image_url": author_image,
         "recipe_title": review.recipe_title,
         "recipe_image": review.recipe_image,
+        "review_image_url": review.review_image_url,
         "rating": review.rating,
         "content": review.content,
         "date": review.date,
@@ -1974,7 +2086,6 @@ def local_auth_sync(data: LocalAuthSyncRequest, session: Session = Depends(get_s
         session.add(user)
         session.commit()
         session.refresh(user)
-    settings = _settings_for_user(session, user)
     access = _token()
     refresh = _token()
     session.add(SessionToken(user_id=user.id, access_token=access, refresh_token=refresh))
@@ -1990,9 +2101,7 @@ def local_auth_sync(data: LocalAuthSyncRequest, session: Session = Depends(get_s
             "avatar_color": _avatar_for_user(user),
             "avatar_image_url": user.avatar_image_url,
             "is_admin": _is_admin(user),
-            "tutorial_completed": settings.tutorial_completed,
         },
-        "tutorial_completed": settings.tutorial_completed,
     }
 
 @app.post("/auth/register/send_email_code")
@@ -2121,11 +2230,7 @@ def logout(data: RefreshRequest, session: Session = Depends(get_session)):
     return {"message": "logged out"}
 
 @app.get("/auth/me")
-def me(
-    session: Session = Depends(get_session),
-    user: User = Depends(_current_user),
-):
-    settings = _settings_for_user(session, user)
+def me(user: User = Depends(_current_user)):
     return {
         "id": user.id,
         "email": user.email,
@@ -2133,7 +2238,6 @@ def me(
         "avatar_color": _avatar_for_user(user),
         "avatar_image_url": user.avatar_image_url,
         "is_admin": _is_admin(user),
-        "tutorial_completed": settings.tutorial_completed,
     }
 
 
@@ -2146,11 +2250,11 @@ def get_my_profile(session: Session = Depends(get_session), user: User = Depends
     recipe_count = len(session.exec(select(RecipeRecord).where(RecipeRecord.owner_user_id == user.id)).all())
     review_count = len(session.exec(
         select(RecipeReview).where(RecipeReview.deleted == False).where(
-            or_(RecipeReview.owner_user_id == user.id, RecipeReview.username == my_name)
+            or_(RecipeReview.owner_user_id == user.id, and_(RecipeReview.owner_user_id.is_(None), RecipeReview.username == my_name))
         )
     ).all())
-    comment_count = len(session.exec(select(CommunityComment).where(CommunityComment.deleted == False).where(or_(CommunityComment.owner_user_id == user.id, CommunityComment.username == my_name))).all())
-    reply_count = len(session.exec(select(CommunityReply).where(CommunityReply.deleted == False).where(or_(CommunityReply.owner_user_id == user.id, CommunityReply.username == my_name))).all())
+    comment_count = len(session.exec(select(CommunityComment).where(CommunityComment.deleted == False).where(or_(CommunityComment.owner_user_id == user.id, and_(CommunityComment.owner_user_id.is_(None), CommunityComment.username == my_name)))).all())
+    reply_count = len(session.exec(select(CommunityReply).where(CommunityReply.deleted == False).where(or_(CommunityReply.owner_user_id == user.id, and_(CommunityReply.owner_user_id.is_(None), CommunityReply.username == my_name)))).all())
     history_count = len(session.exec(select(CookingHistory).where(CookingHistory.user_id == user.id)).all())
     saved_count = len(session.exec(select(SavedRecipe).where(SavedRecipe.user_id == user.id)).all())
     device_count = len(session.exec(select(RegisteredDevice).where(RegisteredDevice.user_id == user.id)).all())
@@ -2182,23 +2286,23 @@ def patch_my_profile(data: UserPatchRequest, session: Session = Depends(get_sess
         user.nickname = nickname
         session.add(user)
         # 기존 표시명 기반 데이터도 같이 갱신하여 내 글/후기 목록이 끊기지 않도록 합니다.
-        for post in session.exec(select(CommunityPost).where(or_(CommunityPost.owner_user_id == user.id, CommunityPost.username == old_name))).all():
+        for post in session.exec(select(CommunityPost).where(or_(CommunityPost.owner_user_id == user.id, and_(CommunityPost.owner_user_id.is_(None), CommunityPost.username == old_name)))).all():
             post.owner_user_id = user.id
             post.username = nickname
             session.add(post)
-        for comment in session.exec(select(CommunityComment).where(or_(CommunityComment.owner_user_id == user.id, CommunityComment.username == old_name))).all():
+        for comment in session.exec(select(CommunityComment).where(or_(CommunityComment.owner_user_id == user.id, and_(CommunityComment.owner_user_id.is_(None), CommunityComment.username == old_name)))).all():
             comment.owner_user_id = user.id
             comment.username = nickname
             session.add(comment)
-        for reply in session.exec(select(CommunityReply).where(or_(CommunityReply.owner_user_id == user.id, CommunityReply.username == old_name))).all():
+        for reply in session.exec(select(CommunityReply).where(or_(CommunityReply.owner_user_id == user.id, and_(CommunityReply.owner_user_id.is_(None), CommunityReply.username == old_name)))).all():
             reply.owner_user_id = user.id
             reply.username = nickname
             session.add(reply)
-        for review in session.exec(select(RecipeReview).where(or_(RecipeReview.owner_user_id == user.id, RecipeReview.username == old_name))).all():
+        for review in session.exec(select(RecipeReview).where(or_(RecipeReview.owner_user_id == user.id, and_(RecipeReview.owner_user_id.is_(None), RecipeReview.username == old_name)))).all():
             review.owner_user_id = user.id
             review.username = nickname
             session.add(review)
-        for recipe_comment in session.exec(select(RecipeComment).where(or_(RecipeComment.owner_user_id == user.id, RecipeComment.username == old_name))).all():
+        for recipe_comment in session.exec(select(RecipeComment).where(or_(RecipeComment.owner_user_id == user.id, and_(RecipeComment.owner_user_id.is_(None), RecipeComment.username == old_name)))).all():
             recipe_comment.owner_user_id = user.id
             recipe_comment.username = nickname
             session.add(recipe_comment)
@@ -2655,7 +2759,7 @@ def unsave_my_recipe(recipe_id: int, session: Session = Depends(get_session), us
 @app.get("/users/me/reviews")
 def get_my_reviews(session: Session = Depends(get_session), user: User = Depends(_current_user)):
     my_name = user.nickname or _display_name_for_email(user.email)
-    rows = session.exec(select(RecipeReview).where(RecipeReview.deleted == False).where(or_(RecipeReview.owner_user_id == user.id, RecipeReview.username == my_name))).all()
+    rows = session.exec(select(RecipeReview).where(RecipeReview.deleted == False).where(or_(RecipeReview.owner_user_id == user.id, and_(RecipeReview.owner_user_id.is_(None), RecipeReview.username == my_name)))).all()
     rows = sorted(rows, key=lambda r: r.id or 0, reverse=True)
     return {"reviews": [_review_payload(session, row, user) for row in rows]}
 
@@ -2688,6 +2792,13 @@ def delete_review(review_id: int, session: Session = Depends(get_session), user:
         raise HTTPException(status_code=403, detail="내 후기만 삭제할 수 있습니다.")
     review.deleted = True
     session.add(review)
+    _remove_upload_asset_for_entity(
+        session,
+        image_url=review.review_image_url,
+        entity_type="recipe_review",
+        entity_id=review_id,
+    )
+    review.review_image_url = None
     session.commit()
     return {"message": "review deleted", "review_id": review_id}
 
@@ -2703,12 +2814,12 @@ def delete_community_review(review_id: int, session: Session = Depends(get_sessi
 def get_my_comments(session: Session = Depends(get_session), user: User = Depends(_current_user)):
     items = []
     my_name = user.nickname or _display_name_for_email(user.email)
-    comments = session.exec(select(CommunityComment).where(CommunityComment.deleted == False).where(or_(CommunityComment.owner_user_id == user.id, CommunityComment.username == my_name))).all()
+    comments = session.exec(select(CommunityComment).where(CommunityComment.deleted == False).where(or_(CommunityComment.owner_user_id == user.id, and_(CommunityComment.owner_user_id.is_(None), CommunityComment.username == my_name)))).all()
     for comment in comments:
         post = session.get(CommunityPost, comment.post_id)
         if post:
             items.append(_my_comment_payload(comment, post))
-    replies = session.exec(select(CommunityReply).where(CommunityReply.deleted == False).where(or_(CommunityReply.owner_user_id == user.id, CommunityReply.username == my_name))).all()
+    replies = session.exec(select(CommunityReply).where(CommunityReply.deleted == False).where(or_(CommunityReply.owner_user_id == user.id, and_(CommunityReply.owner_user_id.is_(None), CommunityReply.username == my_name)))).all()
     for reply in replies:
         comment = session.get(CommunityComment, reply.comment_id)
         if comment:
@@ -2766,6 +2877,39 @@ def delete_my_cooking_history(history_id: int, session: Session = Depends(get_se
     session.delete(row)
     session.commit()
     return {"message": "history deleted", "history_id": history_id}
+
+
+@app.post("/users/me/cooking-histories/{history_id}/save-as-recipe")
+def save_history_as_recipe(history_id: int, session: Session = Depends(get_session), user: User = Depends(_current_user)):
+    history = session.get(CookingHistory, history_id)
+    if not history or history.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Cooking history not found")
+    recipe = RecipeRecord(
+        owner_user_id=user.id,
+        title=f"{history.recipe_title} 복사본",
+        description="조리 이력에서 저장한 레시피입니다.",
+        author=user.nickname or _display_name_for_email(user.email),
+        is_personal=True,
+    )
+    session.add(recipe)
+    session.commit()
+    session.refresh(recipe)
+    try:
+        steps = json.loads(history.steps_json or "[]")
+    except Exception:
+        steps = []
+    if not steps:
+        steps = [{"temperature": history.max_temperature or 180, "time_offset": 0}]
+    for index, step in enumerate(steps, start=1):
+        session.add(RecipeStepRecord(
+            recipe_id=recipe.id,
+            temperature=float(step.get("temperature") or history.max_temperature or 180),
+            time_offset=float(step.get("time_offset") or step.get("timeOffset") or 0),
+            label=str(step.get("label") or f"Step {index}"),
+            sort_order=index,
+        ))
+    session.commit()
+    return {"recipe": _recipe_card_payload(session, recipe)}
 
 @app.get("/users/me/devices")
 def get_my_devices(session: Session = Depends(get_session), user: User = Depends(_current_user)):
@@ -3222,7 +3366,6 @@ async def upload_community_image(
     file: UploadFile = File(...),
     user: User = Depends(_current_user),
 ):
-    del user  # 인증된 사용자만 업로드할 수 있도록 의존성만 사용합니다.
     original_name = _safe_filename(file.filename or "community.jpg")
     extension = Path(original_name).suffix.lower()
     allowed_extensions = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
@@ -3252,8 +3395,20 @@ async def upload_community_image(
         output.write(content)
 
     image_url = str(request.url_for("local_s3_get", s3_key=key))
+    with Session(engine) as session:
+        asset = UploadAsset(
+            owner_user_id=user.id,
+            storage_key=key,
+            image_url=image_url,
+            status="temporary",
+        )
+        session.add(asset)
+        session.commit()
+        session.refresh(asset)
     return {
         "image_url": image_url,
+        "upload_id": asset.id,
+        "status": asset.status,
         "size": len(content),
         "filename": original_name,
     }
@@ -3496,6 +3651,15 @@ def create_post(data: PostCreate, session: Session = Depends(get_session), user:
     if not post.title or not post.content:
         raise HTTPException(status_code=400, detail="title/content required")
     session.add(post)
+    session.flush()
+    if post.image_url and post.id is not None:
+        _complete_upload_asset(
+            session,
+            image_url=post.image_url,
+            user_id=user.id,
+            entity_type="community_post",
+            entity_id=post.id,
+        )
     session.commit()
     session.refresh(post)
     return {"message": "created", "post": _post_payload(session, post, user)}
@@ -3503,6 +3667,7 @@ def create_post(data: PostCreate, session: Session = Depends(get_session), user:
 @app.patch("/community/posts/{post_id}")
 def update_post(post_id: int, data: PostPatch, session: Session = Depends(get_session), user: User = Depends(_current_user)):
     post = _first_or_404(session, CommunityPost, post_id, "Post not found")
+    previous_image_url = post.image_url
     if not _is_owner(post, user):
         raise HTTPException(status_code=403, detail="내 글만 수정할 수 있습니다.")
     if data.category is not None:
@@ -3519,6 +3684,23 @@ def update_post(post_id: int, data: PostPatch, session: Session = Depends(get_se
     post.updated_at = now
     post.content_updated_at = now
     session.add(post)
+    session.flush()
+    if previous_image_url != post.image_url:
+        if previous_image_url:
+            _remove_upload_asset_for_entity(
+                session,
+                image_url=previous_image_url,
+                entity_type="community_post",
+                entity_id=post_id,
+            )
+        if post.image_url:
+            _complete_upload_asset(
+                session,
+                image_url=post.image_url,
+                user_id=user.id,
+                entity_type="community_post",
+                entity_id=post_id,
+            )
     session.commit()
     session.refresh(post)
     return {"message": "updated", "post": _post_payload(session, post, user)}
@@ -3531,6 +3713,13 @@ def delete_post(post_id: int, session: Session = Depends(get_session), user: Use
     post.deleted = True
     post.updated_at = datetime.utcnow()
     session.add(post)
+    _remove_upload_asset_for_entity(
+        session,
+        image_url=post.image_url,
+        entity_type="community_post",
+        entity_id=post_id,
+    )
+    post.image_url = None
     session.commit()
     return {"message": "deleted", "post_id": post_id}
 
@@ -4407,7 +4596,10 @@ def get_notifications(session: Session = Depends(get_session), user: User = Depe
         select(CommunityNotification).where(
             or_(
                 CommunityNotification.target_user_id == user.id,
-                CommunityNotification.username == (user.nickname or _display_name_for_email(user.email)),
+                and_(
+                    CommunityNotification.target_user_id.is_(None),
+                    CommunityNotification.username == (user.nickname or _display_name_for_email(user.email)),
+                ),
             )
         )
     ).all()
@@ -4427,7 +4619,10 @@ def read_all_notifications(session: Session = Depends(get_session), user: User =
         select(CommunityNotification).where(
             or_(
                 CommunityNotification.target_user_id == user.id,
-                CommunityNotification.username == (user.nickname or _display_name_for_email(user.email)),
+                and_(
+                    CommunityNotification.target_user_id.is_(None),
+                    CommunityNotification.username == (user.nickname or _display_name_for_email(user.email)),
+                ),
             )
         )
     ).all()
@@ -4452,7 +4647,10 @@ def read_target_notifications(
         select(CommunityNotification).where(
             or_(
                 CommunityNotification.target_user_id == user.id,
-                CommunityNotification.username == my_name,
+                and_(
+                    CommunityNotification.target_user_id.is_(None),
+                    CommunityNotification.username == my_name,
+                ),
             )
         )
     ).all()
@@ -4496,6 +4694,7 @@ def create_review(payload: dict, session: Session = Depends(get_session), user: 
     rating = max(1, min(5, rating))
     recipe_id = str(payload.get("recipe_id") or "").strip() or recipe_title
     recipe_image = str(payload.get("recipe_image") or "").strip() or IMG_STEAK
+    review_image_url = str(payload.get("review_image_url") or "").strip() or None
     username = user.nickname or _display_name_for_email(user.email)
     review = RecipeReview(
         owner_user_id=user.id,
@@ -4503,6 +4702,7 @@ def create_review(payload: dict, session: Session = Depends(get_session), user: 
         avatar_color=_avatar_for_user(user),
         recipe_title=recipe_title,
         recipe_image=recipe_image,
+        review_image_url=review_image_url,
         rating=rating,
         content=content,
         date=datetime.utcnow().strftime("%Y.%m.%d"),
@@ -4512,6 +4712,14 @@ def create_review(payload: dict, session: Session = Depends(get_session), user: 
     )
     session.add(review)
     session.flush()
+    if review.review_image_url and review.id is not None:
+        _complete_upload_asset(
+            session,
+            image_url=review.review_image_url,
+            user_id=user.id,
+            entity_type="recipe_review",
+            entity_id=review.id,
+        )
     recipe = _recipe_for_client_id(session, recipe_id)
     if recipe is not None and recipe.owner_user_id is not None:
         owner = session.get(User, recipe.owner_user_id)
@@ -5392,6 +5600,7 @@ def _ensure_schema_columns():
             ],
             "recipereview": [
                 ("owner_user_id", "INTEGER"),
+                ("review_image_url", "TEXT"),
                 ("deleted", "BOOLEAN DEFAULT 0"),
                 ("updated_at", "TIMESTAMP"),
             ],
@@ -5481,3 +5690,9 @@ def on_startup():
     _seed_if_empty()
     _repair_legacy_community_times()
     _sync_design_notices()
+    cleanup_thread = threading.Thread(
+        target=_upload_cleanup_loop,
+        name="upload-orphan-cleanup",
+        daemon=True,
+    )
+    cleanup_thread.start()

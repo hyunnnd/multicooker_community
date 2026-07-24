@@ -12,6 +12,7 @@ class AuthScaffold extends StatelessWidget {
     this.backPath = '/login',
     this.scrollable = true,
     this.showBrandHeader = true,
+    this.showBodyTitle = true,
     this.toast,
   });
 
@@ -21,6 +22,7 @@ class AuthScaffold extends StatelessWidget {
   final String backPath;
   final bool scrollable;
   final bool showBrandHeader;
+  final bool showBodyTitle;
   final Widget? toast;
 
   @override
@@ -136,16 +138,18 @@ class AuthScaffold extends StatelessWidget {
                             ),
                           ),
                         ),
-                        const SizedBox(height: 16),
-                        Text(
-                          title,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFF111827),
+                        if (showBodyTitle) ...[
+                          const SizedBox(height: 16),
+                          Text(
+                            title,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF111827),
+                            ),
                           ),
-                        ),
+                        ],
                         const SizedBox(height: 24),
                       ] else
                         const SizedBox(height: 128),

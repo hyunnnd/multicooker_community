@@ -365,6 +365,7 @@ class CommunityReview {
     this.avatarImageUrl,
     required this.recipeTitle,
     required this.recipeImage,
+    this.reviewImageUrl,
     required this.rating,
     required this.content,
     required this.date,
@@ -389,6 +390,7 @@ class CommunityReview {
   final String? avatarImageUrl;
   final String recipeTitle;
   final String recipeImage;
+  final String? reviewImageUrl;
   final int rating;
   final String content;
   final String date;
@@ -468,6 +470,7 @@ class CommunityReview {
         avatarImageUrl: avatarImageUrl ?? this.avatarImageUrl,
         recipeTitle: recipeTitle,
         recipeImage: recipeImage,
+        reviewImageUrl: reviewImageUrl,
         rating: rating,
         content: content,
         date: date,

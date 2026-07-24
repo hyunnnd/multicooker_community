@@ -426,6 +426,7 @@ class CommunityRepository {
     required String recipeId,
     required String recipeTitle,
     required String recipeImage,
+    String? reviewImageUrl,
     required int rating,
     required String content,
   }) async {
@@ -435,6 +436,7 @@ class CommunityRepository {
         'recipe_id': recipeId,
         'recipe_title': recipeTitle,
         'recipe_image': recipeImage,
+        'review_image_url': reviewImageUrl?.trim() ?? '',
         'rating': rating,
         'content': content,
       },
@@ -583,6 +585,7 @@ class CommunityRepository {
         avatarImageUrl: _asNullableString(json['avatar_image_url']),
         recipeTitle: json['recipe_title'] as String? ?? '',
         recipeImage: json['recipe_image'] as String? ?? '',
+        reviewImageUrl: _asNullableString(json['review_image_url']),
         rating: _asInt(json['rating']),
         content: json['content'] as String? ?? '',
         date: json['date'] as String? ?? '',

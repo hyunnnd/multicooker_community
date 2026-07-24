@@ -51,6 +51,7 @@ class _ResetPasswordEmailScreenState extends State<ResetPasswordEmailScreen> {
         child: AuthScaffold(
           title: '비밀번호 재설정',
           showBack: true,
+          showBodyTitle: false,
           scrollable: false,
           toast: ErrorView(
             _toastMessage ?? auth.errorMessage,

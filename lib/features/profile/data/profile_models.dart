@@ -91,6 +91,7 @@ class MyReviewItem {
     required this.recipeId,
     required this.recipeTitle,
     required this.recipeImage,
+    this.reviewImageUrl,
     required this.rating,
     required this.content,
     required this.date,
@@ -102,6 +103,7 @@ class MyReviewItem {
   final String recipeId;
   final String recipeTitle;
   final String recipeImage;
+  final String? reviewImageUrl;
   final int rating;
   final String content;
   final String date;
@@ -113,6 +115,7 @@ class MyReviewItem {
         recipeId: _asString(json['recipe_id']),
         recipeTitle: _asString(json['recipe_title'], fallback: '레시피'),
         recipeImage: _asString(json['recipe_image']),
+        reviewImageUrl: _nullableString(json['review_image_url']),
         rating: _asInt(json['rating'], fallback: 5),
         content: _asString(json['content']),
         date: _asString(json['date']),

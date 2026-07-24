@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:multicooker_bluetooth_sdk/multicooker_bluetooth_sdk.dart';
 import 'package:provider/provider.dart';
 
@@ -20,6 +21,49 @@ class _DeviceScreenState extends State<DeviceScreen> {
   LedColor _ledColor = LedColor.grapheneBlue;
   bool _sending = false;
   bool _completedDialogShown = false;
+  DeviceProvider? _deviceProvider;
+  bool _wasConnected = false;
+  bool _homeNavigationScheduled = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    final provider = context.read<DeviceProvider>();
+    if (identical(_deviceProvider, provider)) return;
+
+    _deviceProvider?.removeListener(_handleDeviceConnectionChanged);
+    _deviceProvider = provider;
+    _wasConnected = provider.isConnected;
+    provider.addListener(_handleDeviceConnectionChanged);
+  }
+
+  @override
+  void dispose() {
+    _deviceProvider?.removeListener(_handleDeviceConnectionChanged);
+    super.dispose();
+  }
+
+  void _handleDeviceConnectionChanged() {
+    final provider = _deviceProvider;
+    if (provider == null) return;
+
+    final isConnected = provider.isConnected;
+    if (!_wasConnected && isConnected) {
+      _goHomeAfterConnection();
+    }
+    _wasConnected = isConnected;
+  }
+
+  void _goHomeAfterConnection() {
+    if (_homeNavigationScheduled || !mounted) return;
+    _homeNavigationScheduled = true;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.go('/home');
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -228,54 +272,10 @@ class _DeviceScreenState extends State<DeviceScreen> {
   Future<void> _connect(String name) async {
     final connected = await context.read<DeviceProvider>().connect(name);
     if (!mounted || !connected) return;
-    await showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.transparent,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: const BorderSide(color: Color(0xFFE5E7EB)),
-        ),
-        icon: Container(
-          width: 56,
-          height: 56,
-          decoration: const BoxDecoration(
-            color: Color(0xFFECFDF3),
-            shape: BoxShape.circle,
-          ),
-          alignment: Alignment.center,
-          child: const Icon(
-            Icons.check_rounded,
-            color: Color(0xFF16A34A),
-            size: 30,
-          ),
-        ),
-        title: const Text(
-          '쿠커 연결 완료',
-          style: TextStyle(
-            color: Color(0xFF111827),
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-        content: Text(
-          '$name 기기와 연결되었습니다.',
-          style: const TextStyle(color: Color(0xFF6B7280)),
-        ),
-        actionsAlignment: MainAxisAlignment.center,
-        actions: [
-          FilledButton(
-            onPressed: () => Navigator.pop(context),
-            style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFFF97316),
-              foregroundColor: Colors.white,
-              minimumSize: const Size(112, 44),
-            ),
-            child: const Text('확인'),
-          ),
-        ],
-      ),
-    );
+
+    // Provider 상태 리스너가 자동 연결과 수동 연결을 모두 감지하지만,
+    // 연결 완료 직후에도 안전하게 홈 이동을 한 번 보장합니다.
+    _goHomeAfterConnection();
   }
 
   Future<void> _showCookingCompleted() async {

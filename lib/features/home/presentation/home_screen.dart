@@ -31,6 +31,9 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _scheduleTutorial(widget.startTutorial);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<ProfileProvider>().loadOverview();
+    });
   }
 
   @override
@@ -311,7 +314,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             iconColor: figmaGreen,
                             backgroundColor: const Color(0xFFECFDF5),
                             label: '최근 조리',
-                            subtitle: '${profile.histories.length}회',
+                            subtitle: '${profile.summary?.cookingHistoryCount ?? profile.histories.length}회',
                             onTap: () => context.push('/my/cooking-history'),
                           ),
                         ),

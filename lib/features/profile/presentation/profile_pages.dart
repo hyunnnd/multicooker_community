@@ -533,12 +533,13 @@ class _CookingHistoryScreenState extends State<CookingHistoryScreen> {
                       completed: item.completed,
                       onSelected: (value) async {
                         if (value == 'cook') {
-                          if (item.recipeId != null) {
-                            context.push(
-                              '/recipes/${Uri.encodeComponent(item.recipeId!)}/prepare',
+                          final recipeId = item.recipeId?.trim();
+                          if (recipeId != null && recipeId.isNotEmpty) {
+                            context.go(
+                              '/recipes/${Uri.encodeComponent(recipeId)}',
                             );
                           } else {
-                            context.go('/device');
+                            context.go('/recipes');
                           }
                           return;
                         }
@@ -697,9 +698,9 @@ class _HistoryOptions extends StatelessWidget {
             height: 64,
             padding: EdgeInsets.fromLTRB(8, 6, 8, 2),
             child: _HistoryOption(
-              icon: Icons.play_circle_outline_rounded,
-              title: '같은 설정으로 조리',
-              subtitle: '동일한 온도와 시간으로 다시 시작',
+              icon: Icons.restaurant_menu_rounded,
+              title: '레시피로 이동',
+              subtitle: '해당 레시피 상세 화면에서 다시 조리',
               highlighted: true,
             ),
           ),
@@ -981,7 +982,12 @@ class _MyReviewCard extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(12, 10, 6, 10),
             child: Row(
               children: [
-                _RecipeThumb(url: review.recipeImage, size: 48),
+                _RecipeThumb(
+                  url: review.reviewImageUrl?.trim().isNotEmpty == true
+                      ? review.reviewImageUrl
+                      : review.recipeImage,
+                  size: 48,
+                ),
                 const SizedBox(width: 11),
                 Expanded(
                   child: Column(

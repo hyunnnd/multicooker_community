@@ -993,6 +993,7 @@ class CommunityProvider extends ChangeNotifier {
     required String recipeId,
     required String recipeTitle,
     required String recipeImage,
+    String? reviewImageUrl,
     required int rating,
     required String content,
   }) async {
@@ -1002,6 +1003,7 @@ class CommunityProvider extends ChangeNotifier {
         recipeId: recipeId.trim(),
         recipeTitle: recipeTitle.trim(),
         recipeImage: recipeImage.trim(),
+        reviewImageUrl: reviewImageUrl?.trim(),
         rating: rating,
         content: content.trim(),
       );

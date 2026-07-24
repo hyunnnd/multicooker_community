@@ -64,6 +64,9 @@ class _CommunityDetailHeader extends StatelessWidget {
     this.trailing,
     this.titleTextAlign = TextAlign.center,
     this.titleStyle,
+    this.compactRightTitle = false,
+    this.backgroundColor = Colors.white,
+    this.showBorder = true,
   });
 
   final String title;
@@ -71,44 +74,71 @@ class _CommunityDetailHeader extends StatelessWidget {
   final Widget? trailing;
   final TextAlign titleTextAlign;
   final TextStyle? titleStyle;
+  final bool compactRightTitle;
+  final Color backgroundColor;
+  final bool showBorder;
 
   @override
   Widget build(BuildContext context) {
+    final resolvedTitleStyle = compactRightTitle
+        ? const TextStyle(
+            color: _gray500,
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+          )
+        : (titleStyle ?? Theme.of(context).textTheme.titleLarge);
+
     return Container(
       width: double.infinity,
       height: kToolbarHeight,
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(bottom: BorderSide(color: _gray200)),
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        border: showBorder
+            ? const Border(bottom: BorderSide(color: _gray200))
+            : null,
       ),
       child: Row(
         children: [
           SizedBox(
-            width: 64,
-            height: kToolbarHeight,
+            width: 36,
+            height: 36,
             child: AppBackButton(onPressed: onBack),
           ),
-          Expanded(
-            child: Text(
-              title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: titleTextAlign,
-              style: titleStyle ?? Theme.of(context).textTheme.titleLarge,
+          if (compactRightTitle) ...[
+            const Spacer(),
+            Flexible(
+              child: Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.right,
+                style: resolvedTitleStyle,
+              ),
             ),
-          ),
-          SizedBox(
-            width: 64,
-            child: trailing == null
-                ? const SizedBox.shrink()
-                : Align(
-                    alignment: Alignment.centerRight,
-                    child: Padding(
-                      padding: const EdgeInsets.only(right: 8),
+          ] else ...[
+            Expanded(
+              child: title.isEmpty
+                  ? const SizedBox.shrink()
+                  : Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: titleTextAlign,
+                      style: resolvedTitleStyle,
+                    ),
+            ),
+            SizedBox(
+              width: 36,
+              height: 36,
+              child: trailing == null
+                  ? const SizedBox.shrink()
+                  : Align(
+                      alignment: Alignment.center,
                       child: trailing!,
                     ),
-                  ),
-          ),
+            ),
+          ],
         ],
       ),
     );

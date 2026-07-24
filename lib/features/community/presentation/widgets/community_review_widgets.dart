@@ -639,6 +639,25 @@ class _ReviewCard extends StatelessWidget {
               ),
             ],
           ),
+          if (review.reviewImageUrl?.trim().isNotEmpty == true) ...[
+            const SizedBox(height: 12),
+            GestureDetector(
+              onTap: () => _showCommunityImageViewer(
+                context,
+                [review.reviewImageUrl!],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: LayoutBuilder(
+                  builder: (context, constraints) => _NetworkImageBox(
+                    url: review.reviewImageUrl!,
+                    width: constraints.maxWidth,
+                    height: 190,
+                  ),
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 10),
           Wrap(
             spacing: 6,
